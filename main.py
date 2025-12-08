@@ -7,10 +7,11 @@ import numpy as np
 
 input = "inputs/image.jpg"
 output = "outputs/output.jpg"
+outputText = "outputs/outputTextfile.txt"
 
-def draw_raw_boxes(image, boxes, save_path="outputs/raw_boxes.png"):
+def draw_boxes(image, boxes, save_path="outputs/raw_boxes.png"):
     img = image.copy()
-
+    boxes = np.concatenate(boxes, axis=0)
     for b in boxes:
         x_min = int(b[:, 0].min())
         y_min = int(b[:, 1].min())
@@ -22,6 +23,9 @@ def draw_raw_boxes(image, boxes, save_path="outputs/raw_boxes.png"):
     cv2.imwrite(save_path, img)
     print(f"[+] Saved raw box image: {save_path}")
 
+def save_text(output_path, text):
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(text)
 
 if __name__ == "__main__":
     # Initialize modules
@@ -33,12 +37,16 @@ if __name__ == "__main__":
 
     # Detect words
     img, boxes = craft.detect(input)
-
+    boxes_list = list(boxes)
     # Draw raw boxes
-    draw_raw_boxes(img, boxes)
+    #draw_boxes(img, boxes_array)
 
     # Merge words into lines
     lines = merge_boxes_into_lines(boxes)
+
+    draw_boxes(img, lines)
+
+    recognized_lines = []
 
     # Draw boxes and recognize text
     for line_box in lines:
@@ -46,8 +54,6 @@ if __name__ == "__main__":
         x_min, y_min = line_array[:,0].min(), line_array[:,1].min()
         x_max, y_max = line_array[:,0].max(), line_array[:,1].max()
 
-        #x_min, y_min = line_box[:,0].min(), line_box[:,1].min()
-        #x_max, y_max = line_box[:,0].max(), line_box[:,1].max()
         cv2.rectangle(img, (int(x_min),int(y_min)), (int(x_max),int(y_max)), (0,255,0), 2)
 
         # Crop line for recognition
@@ -55,6 +61,10 @@ if __name__ == "__main__":
         pil_img = Image.fromarray(line_img)
         text = recognizer.recognize(pil_img)
         print("Recognized:", text)
+        recognized_lines.append(text)
 
     cv2.imwrite(output, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
     print("Output saved as output.jpg")
+
+    #save results
+    save_text(outputText, "\n".join(recognized_lines))
