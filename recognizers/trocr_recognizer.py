@@ -4,8 +4,8 @@ import torch
 
 class TrocrRecognizer:
     def __init__(self):
-        self.processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
-        self.model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
+        self.processor = TrOCRProcessor.from_pretrained("weights/trocr-local")
+        self.model = VisionEncoderDecoderModel.from_pretrained("weights/trocr-local")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
