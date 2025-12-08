@@ -2,10 +2,12 @@ import cv2
 from detectors.craft_detector import CraftDetector
 from postprocess.box_merger import merge_boxes_into_lines
 from recognizers.trocr_recognizer import TrocrRecognizer
+from detectors.imgproc import loadImage
 from PIL import Image
 import numpy as np
+from utils.file_utils import enhance_document
 
-input = "inputs/image.jpg"
+input = "inputs/image2.jpg"
 output = "outputs/output.jpg"
 outputText = "outputs/outputTextfile.txt"
 
@@ -35,16 +37,17 @@ if __name__ == "__main__":
     )
     recognizer = TrocrRecognizer()
 
+    #load image
+    image = loadImage(input)
+    #image = enhance_document(image)
+
     # Detect words
-    img, boxes = craft.detect(input)
-    boxes_list = list(boxes)
-    # Draw raw boxes
-    #draw_boxes(img, boxes_array)
+    boxes = craft.detect(image)
 
     # Merge words into lines
     lines = merge_boxes_into_lines(boxes)
 
-    draw_boxes(img, lines)
+    draw_boxes(image, lines)
 
     recognized_lines = []
 
@@ -54,16 +57,16 @@ if __name__ == "__main__":
         x_min, y_min = line_array[:,0].min(), line_array[:,1].min()
         x_max, y_max = line_array[:,0].max(), line_array[:,1].max()
 
-        cv2.rectangle(img, (int(x_min),int(y_min)), (int(x_max),int(y_max)), (0,255,0), 2)
+        cv2.rectangle(image, (int(x_min),int(y_min)), (int(x_max),int(y_max)), (0,255,0), 2)
 
         # Crop line for recognition
-        line_img = img[int(y_min):int(y_max), int(x_min):int(x_max)]
+        line_img = image[int(y_min):int(y_max), int(x_min):int(x_max)]
         pil_img = Image.fromarray(line_img)
         text = recognizer.recognize(pil_img)
         print("Recognized:", text)
         recognized_lines.append(text)
 
-    cv2.imwrite(output, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+    cv2.imwrite(output, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
     print("Output saved as output.jpg")
 
     #save results

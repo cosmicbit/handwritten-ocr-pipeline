@@ -1,8 +1,7 @@
 import torch
 import cv2
-import numpy as np
 from detectors.craft import CRAFT
-from detectors.imgproc import loadImage, resize_aspect_ratio, normalizeMeanVariance
+from detectors.imgproc import resize_aspect_ratio, normalizeMeanVariance
 from utils.weights import remove_module_prefix
 from detectors.craft_utils import getDetBoxes ,adjustResultCoordinates
 
@@ -14,7 +13,6 @@ class CraftDetector:
         # Load model
         self.model = CRAFT()
 
-        
         state_dict = torch.load(weight_path, map_location="cpu")
         state_dict = remove_module_prefix(state_dict)
         self.model.load_state_dict(state_dict, strict=True)
@@ -24,12 +22,10 @@ class CraftDetector:
         
         self.model.eval()
 
-    def detect(self, image_path):
-        img = loadImage(image_path)
-
+    def detect(self, image):
         # resize
         img_resized, target_ratio, size_heatmap = resize_aspect_ratio(
-            img, 1280, cv2.INTER_LINEAR
+            image, 1280, cv2.INTER_LINEAR
         )
         ratio_h = ratio_w = 1 / target_ratio
         img_resized = normalizeMeanVariance(img_resized)
@@ -53,4 +49,4 @@ class CraftDetector:
         # adjust coordinates back to image size
         boxes = adjustResultCoordinates(boxes, ratio_w, ratio_h)
 
-        return cv2.imread(image_path), boxes
+        return boxes

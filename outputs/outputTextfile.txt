@@ -1,11 +1,11 @@
 Explain the difference between deadlock prevention and
 deadback avoidance in operating systems . Give one example
-for each
-first Dead look Prevention vs Deadlock Avoidance
-Health prevention ensures at least one of the four deadlock
-ponditions ( mutual exclusion , hold-and-wait , no exemption , circular
-traits ) is never allowed .
-Mendholm avoidance allows request only if the system remains
-the same state after granting them
-Anne Parker's algorithm checks whether allowing a resource
-ineeps the system " safe
+for each .
+Mr. Dead lock Prevention vs Deadlock Avoidance
+Deadback prevention ensures at least one of the four deadlock
+condition . Grutual exclusion , hold-and-wait , no exemption , circular
+naiful is never allowed .
+Peddock avoidance allows request only . if the system remains
+in a safe-state after granting them
+Exit- Parker's algorithm checks whether allowing a resource
+keeps the system " safe
