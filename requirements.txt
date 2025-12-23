@@ -4,5 +4,3 @@ opencv-python
 numpy
 scikit-image
 torchvision
-shapely
-alphashape
