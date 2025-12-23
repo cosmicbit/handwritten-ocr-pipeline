@@ -35,8 +35,10 @@ def main():
     lines = merge_boxes_into_lines(boxes)
 
     # draw boxes
-    utils.draw_boxes(image, boxes)
-    utils.draw_boxes_of_lines(image, lines)
+    utils.draw_boxes(image, boxes, save_path=OUTPUTS_DIR / settings.wordsOutputImageFile)
+    utils.draw_boxes_of_lines(image, lines, save_path=OUTPUTS_DIR / settings.linesOutputImage)
+    utils.draw_curved_line_envelopes(image, lines, save_path=OUTPUTS_DIR / settings.curvedLinesOutputImage)
+    utils.draw_concave_hull_lines(image, lines, save_path=OUTPUTS_DIR / settings.hullLinesOutputImage)
 
     recognized_lines = []
 

@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
-
+import alphashape
+from shapely.geometry import Polygon, MultiPolygon
 from handwriting_ocr_pipeline.config.paths import OUTPUTS_DIR
 import handwriting_ocr_pipeline.config.settings as settings
 
@@ -70,3 +71,85 @@ def save_text(output_path, text):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(text)
     print(f"[+] Saved as text file: {output_path}")
+
+def draw_curved_line_envelopes(image, lines, save_path, thickness=2):
+    img = image.copy()
+
+    for line in lines:
+        if len(line) < 2:
+            continue
+
+        # left → right
+        line = sorted(line, key=lambda b: b[:, 0].mean())
+
+        upper = []
+        lower = []
+
+        for box in line:
+            top_mid, bottom_mid = top_bottom_midpoints(box)
+            upper.append(top_mid)
+            lower.append(bottom_mid)
+
+        contour = np.array(
+            upper + lower[::-1],
+            dtype=np.int32
+        )
+
+        cv2.polylines(
+            img,
+            [contour],
+            isClosed=True,
+            color=(0, 255, 0),
+            thickness=thickness
+        )
+
+    cv2.imwrite(save_path, img)
+
+
+def top_bottom_midpoints(box):
+    # sort points by y
+    pts = box[np.argsort(box[:, 1])]
+
+    top_edge = pts[:2]
+    bottom_edge = pts[-2:]
+
+    top_mid = top_edge.mean(axis=0)
+    bottom_mid = bottom_edge.mean(axis=0)
+
+    return top_mid, bottom_mid
+
+
+def draw_concave_hull_lines(
+        image, 
+        lines, 
+        save_path=OUTPUTS_DIR / settings.hullLinesOutputImage, 
+        alpha=0.02):
+    img = image.copy()
+
+    for line in lines:
+        # collect all points from all boxes
+        points = np.concatenate(line, axis=0)
+
+        # convert to list of tuples for alphashape
+        pts = [(float(x), float(y)) for x, y in points]
+
+        if len(pts) < 4:
+            continue  # hull not possible
+
+        hull = alphashape.alphashape(pts, alpha)
+
+        if hull.is_empty:
+            continue
+
+        # alphashape may return Polygon or MultiPolygon
+        polygons = (
+            [hull] if isinstance(hull, Polygon)
+            else list(hull.geoms) if isinstance(hull, MultiPolygon)
+            else []
+        )
+
+        for poly in polygons:
+            coords = np.array(poly.exterior.coords, dtype=np.int32)
+            cv2.polylines(img, [coords], isClosed=True, color=(0, 255, 0), thickness=2)
+
+    cv2.imwrite(save_path, img)
