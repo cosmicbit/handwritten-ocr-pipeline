@@ -66,3 +66,7 @@ def draw_boxes_of_lines(image: np.typing.NDArray, boxes: list, save_path=OUTPUTS
     cv2.imwrite(save_path, img)
     print(f"[+] Saved raw box image: {save_path}")
 
+def save_text(output_path, text):
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"[+] Saved as text file: {output_path}")

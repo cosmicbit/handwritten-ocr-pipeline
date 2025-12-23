@@ -3,8 +3,7 @@ from handwriting_ocr_pipeline.postprocess.box_merger import merge_boxes_into_lin
 from handwriting_ocr_pipeline.recognizers.trocr_recognizer import TrocrRecognizer
 from handwriting_ocr_pipeline.detectors.imgproc import loadImage
 from handwriting_ocr_pipeline.utils.file_utils import print_progress_bar
-from handwriting_ocr_pipeline.utils.file_utils import draw_boxes
-from handwriting_ocr_pipeline.utils.file_utils import draw_boxes_of_lines
+import handwriting_ocr_pipeline.utils.file_utils as utils
 
 from handwriting_ocr_pipeline.config.paths import INPUTS_DIR
 from handwriting_ocr_pipeline.config.paths import OUTPUTS_DIR
@@ -17,12 +16,7 @@ import numpy as np
 input = INPUTS_DIR / settings.inputFileTwo
 outputText = OUTPUTS_DIR / settings.recognisedTextFile
 
-def save_text(output_path, text):
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(text)
-    print(f"[+] Saved as text file: {output_path}")
-
-if __name__ == "__main__":
+def main():
     # Initialize modules
     craft = CraftDetector(
         MODELS_DIR / settings.craftModelFile,
@@ -41,8 +35,8 @@ if __name__ == "__main__":
     lines = merge_boxes_into_lines(boxes)
 
     # draw boxes
-    draw_boxes(image, boxes)
-    draw_boxes_of_lines(image, lines)
+    utils.draw_boxes(image, boxes)
+    utils.draw_boxes_of_lines(image, lines)
 
     recognized_lines = []
 
@@ -61,5 +55,7 @@ if __name__ == "__main__":
         recognized_lines.append(text)
     print_progress_bar(100, 100)
     #save results
-    save_text(outputText, "\n".join(recognized_lines))
-    
+    utils.save_text(outputText, "\n".join(recognized_lines))
+
+if __name__ == "__main__":
+    main()
