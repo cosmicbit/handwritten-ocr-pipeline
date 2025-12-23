@@ -1,9 +1,9 @@
 import torch
 import cv2
-from detectors.craft import CRAFT
-from detectors.imgproc import resize_aspect_ratio, normalizeMeanVariance
-from utils.weights import remove_module_prefix
-from detectors.craft_utils import getDetBoxes ,adjustResultCoordinates
+from handwriting_ocr_pipeline.detectors.craft import CRAFT
+from handwriting_ocr_pipeline.detectors.imgproc import resize_aspect_ratio, normalizeMeanVariance
+from handwriting_ocr_pipeline.utils.weights import remove_module_prefix
+from handwriting_ocr_pipeline.detectors.craft_utils import getDetBoxes ,adjustResultCoordinates
 
 class CraftDetector:
 

@@ -1,0 +1,6 @@
+inputFileOne = "image.jpg"
+inputFileTwo = "image2.jpg"
+wordsOutputImageFile = "words_output.png"
+linesOutputImage = "lines_output.png"
+recognisedTextFile = "outputTextfile.txt"
+craftModelFile = "craft_mlt_25k.pth"
