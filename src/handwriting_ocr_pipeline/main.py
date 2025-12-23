@@ -15,6 +15,7 @@ import numpy as np
 
 input = INPUTS_DIR / settings.inputFileTwo
 outputText = OUTPUTS_DIR / settings.recognisedTextFile
+outputText2 = OUTPUTS_DIR / settings.recognisedTextFile2
 
 def main():
     # Initialize modules
@@ -26,7 +27,6 @@ def main():
 
     #load image
     image = loadImage(input)
-    #image = enhance_document(image)
 
     # Detect words
     boxes = craft.detect(image)
@@ -37,10 +37,24 @@ def main():
     # draw boxes
     utils.draw_boxes(image, boxes, save_path=OUTPUTS_DIR / settings.wordsOutputImageFile)
     utils.draw_boxes_of_lines(image, lines, save_path=OUTPUTS_DIR / settings.linesOutputImage)
-    utils.draw_curved_line_envelopes(image, lines, save_path=OUTPUTS_DIR / settings.curvedLinesOutputImage)
+    contours = utils.compute_curved_line_envelopes(lines)
+    utils.draw_line_envelopes(image, contours, save_path=OUTPUTS_DIR / settings.curvedLinesOutputImage)
 
     recognized_lines = []
 
+    for i in range(len(contours)):
+        crop = utils.extract_contour_region(image, contours[i])
+        crop = utils.white_background(crop)
+        
+        pil_img = Image.fromarray(crop)
+        text = recognizer.recognize(pil_img)
+        progress = (i / len(lines)) * 100
+        print_progress_bar(progress, 100)
+        recognized_lines.append(text)
+    print_progress_bar(100, 100)
+    utils.save_text(outputText2, "\n".join(recognized_lines))
+    
+    recognized_lines = []
     # recognize text
     for i in range(len(lines)):
         line_array = np.concatenate(lines[i], axis=0)

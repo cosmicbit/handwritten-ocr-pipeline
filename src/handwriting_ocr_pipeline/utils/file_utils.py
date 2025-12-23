@@ -71,56 +71,60 @@ def save_text(output_path, text):
         f.write(text)
     print(f"[+] Saved as text file: {output_path}")
 
-def draw_curved_line_envelopes(image, lines, save_path):
-    img = image.copy()
+def compute_curved_line_envelopes(lines):
+    """
+    Returns a list of closed contours (Nx2 int arrays),
+    one per text line.
+    """
+    contours = []
 
     for line in lines:
         if len(line) < 2:
             continue
 
+        # sort left → right
         line = sorted(line, key=lambda b: b[:, 0].mean())
 
         upper, lower = [], []
 
         for box in line:
             pts = box[np.argsort(box[:, 1])]
-            top_mid = pts[:2].mean(axis=0)
-            bot_mid = pts[-2:].mean(axis=0)
+            upper.append(pts[:2].mean(axis=0))
+            lower.append(pts[-2:].mean(axis=0))
 
-            upper.append(top_mid)
-            lower.append(bot_mid)
+        # endpoint anchors
+        left_top, left_bot = endpoint_anchors(line[0], "left")
+        right_top, right_bot = endpoint_anchors(line[-1], "right")
 
-        # first and last boxes
-        first_box = line[0]
-        last_box = line[-1]
-
-        # anchor endpoints
-        left_top, left_bot = endpoint_anchors(first_box, "left")
-        right_top, right_bot = endpoint_anchors(last_box, "right")
-
-        # prepend & append
         upper = [left_top] + upper + [right_top]
         lower = [left_bot] + lower + [right_bot]
 
-        # densify
-        upper = densify(upper, samples_per_segment=6)
-        lower = densify(lower, samples_per_segment=6)
+        # densify & smooth
+        upper = chaikin(densify(upper, 6), iterations=2)
+        lower = chaikin(densify(lower, 6), iterations=2)
 
-        # smooth
-        upper = chaikin(upper, iterations=2)
-        lower = chaikin(lower, iterations=2)
-
+        # controlled looseness
         line_height = estimate_line_height(line)
-        padding = 0.2 * line_height   # tune: 0.25–0.45 works well
+        padding = 0.2 * line_height
 
         upper[:, 1] -= padding
         lower[:, 1] += padding
 
         contour = np.vstack([upper, lower[::-1]]).astype(np.int32)
+        contours.append(contour)
 
-        cv2.polylines(img, [contour], True, (0, 255, 0), 2)
+    return contours
+
+
+def draw_line_envelopes(image, contours, save_path,
+                        color=(0, 255, 0), thickness=2):
+    img = image.copy()
+
+    for contour in contours:
+        cv2.polylines(img, [contour], True, color, thickness)
 
     cv2.imwrite(save_path, img)
+
 
 def estimate_line_height(line):
     heights = [(b[:, 1].max() - b[:, 1].min()) for b in line]
@@ -167,3 +171,28 @@ def chaikin(points, iterations=2):
             new_pts.append(0.25 * p + 0.75 * q)
         pts = np.array(new_pts)
     return pts
+
+def white_background(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    mask = gray > 0
+
+    out = np.ones_like(img) * 255
+    out[mask] = img[mask]
+
+    return out
+
+def extract_contour_region(image, contour):
+    h, w = image.shape[:2]
+
+    contour = np.ascontiguousarray(contour, dtype=np.int32)
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.fillPoly(mask, [contour], 255)
+
+    masked = cv2.bitwise_and(image, image, mask=mask)
+
+    x, y, bw, bh = cv2.boundingRect(contour)
+    cropped = masked[y:y+bh, x:x+bw]
+
+    return cropped
+
