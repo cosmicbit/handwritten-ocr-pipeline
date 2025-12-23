@@ -1,0 +1,11 @@
+Explain the difference between deadlock prevention and
+deadlock avoidance in operating systems . Give one example
+for each .
+Ans. Dead lock Prevention vs Deadlock Avoidance
+Deadback prevention ensures at least one of the four deadlock
+condition . Grutual exclusion , hold-and-wait , no exemption , circular
+wait ) is never allowed .
+Deadback avoidance allows request only .it the system remains
+in a safe-stute at her granting them .
+ex- Bankers algorithm checks whether allowing a resource
+keeps the system's ate
