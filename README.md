@@ -1,29 +1,22 @@
 After cloning the repo and switching to the handwritten-ocr branch follow these instructions.
 
-## 1. Install Conda
+## 1. Create virtual environment
+
+```bash
+python -m venv .venv
+```
+
+## 2. Activate the virtual environment
 
 **Linux / macOS**
 ```bash
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh
-```
-
-## 2. Create virtual environment
-
-```bash
-conda create -p .venv python=3.10 -y
-```
-
-## 3. Activate the virtual environment
-
-**Linux / macOS**
-```bash
-conda activate ./.venv
+source .venv/bin/activate
 ```
 
 **Windows**
 ```bash
-conda activate .\.venv
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.\.venv\Scripts\Activate.ps1
 ```
 
 ## 4. Install the dependencies
