@@ -31,10 +31,13 @@ conda activate .\.venv
 ```bash
 pip install -r requirements.txt
 ```
+```bash
+pip install -e .
+```
 
 ## 5. Run the main file
 
 ```bash
-python main.py
+python -m handwriting_ocr_pipeline.main
 ```
 You can see the output in the Outputs/ folder
