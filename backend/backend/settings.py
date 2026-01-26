@@ -14,6 +14,8 @@ from pathlib import Path
 
 import datetime
 
+import os
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -39,7 +41,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'auth2'
+    'auth2',
+    'core',
+    'rbac'
 ]
 
 MIDDLEWARE = [
@@ -78,10 +82,15 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'backend_db',
+        'USER': 'backend_user',
+        'PASSWORD': 'supersecret123',
+        'HOST': '127.0.0.1',   
+        'PORT': '5432',
     }
 }
+
 
 
 # Password validation
@@ -102,6 +111,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+AUTH_USER_MODEL = 'auth2.User'
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -127,4 +137,42 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 JWT_SECRET = "ASDASDASDASDASDASDASVSSWDFVSDaasdfasdfsfsfdsdfsd"
 JWT_ALGORITHM = "HS256"
-jWT_EXP_DELTA = datetime.timedelta(hours=2)
+JWT_EXP_DELTA = datetime.timedelta(hours=2)
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+
+    "formatters": {
+        "colored": {
+            "()": "colorlog.ColoredFormatter",
+            "format": (
+                "%(log_color)s[%(levelname)s]"
+                " %(asctime)s "
+                "%(name)s "
+                "%(message)s"
+            ),
+            "log_colors": {
+                "DEBUG": "cyan",
+                "INFO": "green",
+                "WARNING": "yellow",
+                "ERROR": "red",
+                "CRITICAL": "bold_red",
+            },
+        },
+    },
+
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "colored",
+        },
+    },
+
+    "loggers": {
+        "auth.jwt": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
+}
