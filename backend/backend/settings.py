@@ -41,7 +41,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'auth2'
+    'auth2',
+    'core',
+    'rbac'
 ]
 
 MIDDLEWARE = [
@@ -136,32 +138,41 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 JWT_SECRET = "ASDASDASDASDASDASDASVSSWDFVSDaasdfasdfsfsfdsdfsd"
 JWT_ALGORITHM = "HS256"
 JWT_EXP_DELTA = datetime.timedelta(hours=2)
-
-
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
 
     "formatters": {
-        "verbose": {
-            "format": "[{asctime}] {levelname} {name} {message}",
-            "style": "{",
-        },
-        "simple": {
-            "format": "{levelname} {message}",
-            "style": "{",
+        "colored": {
+            "()": "colorlog.ColoredFormatter",
+            "format": (
+                "%(log_color)s[%(levelname)s]"
+                " %(asctime)s "
+                "%(name)s "
+                "%(message)s"
+            ),
+            "log_colors": {
+                "DEBUG": "cyan",
+                "INFO": "green",
+                "WARNING": "yellow",
+                "ERROR": "red",
+                "CRITICAL": "bold_red",
+            },
         },
     },
 
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "simple",
+            "formatter": "colored",
         },
     },
 
-    "root": {
-        "handlers": ["console"],
-        "level": "INFO",
+    "loggers": {
+        "auth.jwt": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
     },
 }

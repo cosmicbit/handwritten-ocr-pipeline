@@ -1,62 +1,20 @@
 from django.http import HttpResponse, JsonResponse
 from django.contrib.auth import authenticate
-from utils.jwt_utils import create_jwt_token 
+from .jwt_utils import create_jwt_token 
 from django.views.decorators.csrf import csrf_exempt
 from django.db import connection
 import logging
 import json
 
 from .commons.require_methods import require_post
-from utils.decorator import public_view
-from utils.permissions import has_permission, check_permission
+from .decorator import public_view
+from rbac.permissions import has_permission, check_permission
 from .services.user_service import UserService
 from .exceptions.user_already_exist import UserAlreadyExist
 from .exceptions.no_default_group import NoDefaultGroup
 
 logger = logging.getLogger(__name__)
-APPLICATION_NAME="auth2"
 
-
-
-@has_permission([
-    f"{APPLICATION_NAME}.add_user",
-    f"{APPLICATION_NAME}.view_user"
-    ])
-@csrf_exempt
-def test(req):
-    return HttpResponse("hello from the server")
-
-@csrf_exempt
-@check_permission
-def get_table_description(request):
-    data = json.loads(request.body)
-    table_name = f"{data['table_name']}"
-
-    with connection.cursor() as cursor:
-        columns = connection.introspection.get_table_description(
-            cursor,
-            table_name
-        )
-
-    return JsonResponse({
-        "table": table_name,
-        "columns": [
-            {
-                "name": col.name,
-                "null": col.null_ok,
-                "type": col.type_code,
-            }
-            for col in columns
-        ]
-    })
-
-
-@csrf_exempt
-@public_view
-def getTableDesc(req):
-    resp = require_post(req=req)
-    if resp:
-        return resp
     
 
 @csrf_exempt

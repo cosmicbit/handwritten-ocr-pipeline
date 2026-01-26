@@ -4,7 +4,7 @@ User = get_user_model()
 
 from ..exceptions.user_already_exist import UserAlreadyExist
 from ..dtos.user_login import UserLogin
-from utils.jwt_utils import create_jwt_token
+from ..jwt_utils import create_jwt_token
 from django.contrib.auth.models import Group
 from ..exceptions.no_default_group import NoDefaultGroup
 
