@@ -14,6 +14,8 @@ from pathlib import Path
 
 import datetime
 
+import os
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -78,10 +80,15 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'backend_db',
+        'USER': 'backend_user',
+        'PASSWORD': 'supersecret123',
+        'HOST': '127.0.0.1',   
+        'PORT': '5432',
     }
 }
+
 
 
 # Password validation
@@ -102,6 +109,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+AUTH_USER_MODEL = 'auth2.User'
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -127,4 +135,33 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 JWT_SECRET = "ASDASDASDASDASDASDASVSSWDFVSDaasdfasdfsfsfdsdfsd"
 JWT_ALGORITHM = "HS256"
-jWT_EXP_DELTA = datetime.timedelta(hours=2)
+JWT_EXP_DELTA = datetime.timedelta(hours=2)
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+
+    "formatters": {
+        "verbose": {
+            "format": "[{asctime}] {levelname} {name} {message}",
+            "style": "{",
+        },
+        "simple": {
+            "format": "{levelname} {message}",
+            "style": "{",
+        },
+    },
+
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+    },
+
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+}

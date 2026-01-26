@@ -1,0 +1,2 @@
+class NoDefaultGroup(Exception):
+    pass
