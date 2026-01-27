@@ -1,8 +1,10 @@
 from django.http import JsonResponse
 from functools import wraps
 from django.contrib.auth import get_user_model
+from .services.table_desc_service import TableDescriptionService
 import json
 
+tableDescriptionService=TableDescriptionService()
 User = get_user_model()
 
 def has_permission(permissions: list):
@@ -76,4 +78,18 @@ def check_permission(view_func):
 
         return view_func(request, *args, **kwargs)
 
+    return wrapper
+
+def is_super_admin(view_func):
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        user = getattr(request, "user", None)
+
+        if not user:
+            return JsonResponse({"error": "Authentication required"}, status=401)
+
+        if not ( user.groups.filter(name="admin").exists() or user.is_superuser ):
+            return JsonResponse({"error": "Super admin required"}, status=403)
+
+        return view_func(request, *args, **kwargs)
     return wrapper

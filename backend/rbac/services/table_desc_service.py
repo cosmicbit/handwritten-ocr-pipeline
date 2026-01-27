@@ -27,3 +27,6 @@ class TableDescriptionService:
 
     def table_exists(self, table_name: str) -> bool:
         return table_name in connection.introspection.table_names()
+    
+    def get_all_tables(self):
+        return connection.introspection.table_names()
