@@ -34,7 +34,6 @@ def has_permission(permissions: list):
         return wrapper
     return decorator
 
-
 def check_permission(view_func):
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
@@ -46,39 +45,56 @@ def check_permission(view_func):
                 status=401
             )
 
-        try:
-            data = json.loads(request.body)
-            table_name_with_application = data["table_name"]
-            application_name, table_name = table_name_with_application.split("_",1)
+        table_name_with_application = None
 
-            required_permissions = [
-                f"{application_name}.add_{table_name}",
-                f"{application_name}.view_{table_name}",
-                f"{application_name}.change_{table_name}",
-                f"{application_name}.delete_{table_name}",
-            ]
 
-            for permission in required_permissions:
-                if not user.has_perm(permission):
-                    return JsonResponse(
-                        {"error": "Permission denied"},
-                        status=403
-                    )
+        if request.method == "GET":
+            table_name_with_application = kwargs.get("table_name")
 
-        except KeyError:
+
+        else:
+            try:
+                data = json.loads(request.body.decode("utf-8"))
+                table_name_with_application = data.get("table_name")
+            except json.JSONDecodeError:
+                return JsonResponse(
+                    {"error": "Invalid JSON"},
+                    status=400
+                )
+
+        if not table_name_with_application:
             return JsonResponse(
                 {"error": "table_name is required"},
                 status=400
             )
-        except json.JSONDecodeError:
+
+        # ✅ split app + model
+        try:
+            application_name, table_name = table_name_with_application.split("_", 1)
+        except ValueError:
             return JsonResponse(
-                {"error": "Invalid JSON"},
+                {"error": "Invalid table_name format"},
                 status=400
             )
+
+        required_permissions = [
+            f"{application_name}.view_{table_name}",
+            f"{application_name}.add_{table_name}",
+            f"{application_name}.change_{table_name}",
+            f"{application_name}.delete_{table_name}",
+        ]
+
+        for permission in required_permissions:
+            if not user.has_perm(permission):
+                return JsonResponse(
+                    {"error": "Permission denied"},
+                    status=403
+                )
 
         return view_func(request, *args, **kwargs)
 
     return wrapper
+
 
 def is_super_admin(view_func):
     @wraps(view_func)

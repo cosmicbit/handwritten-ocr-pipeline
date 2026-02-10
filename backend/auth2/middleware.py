@@ -40,8 +40,10 @@ class JWTAuthenticationMiddleware:
             )
 
         token = auth_header.split(" ")[1]
+        print("Token:", token)
 
         try:
+            print("Decoding JWT...")
             payload = jwt.decode(
                 token,
                 settings.JWT_SECRET,
@@ -50,6 +52,8 @@ class JWTAuthenticationMiddleware:
 
             user_id = payload.get("user_id")
             exp = payload.get("exp")
+
+            print("Payload:", payload)
 
             if exp:
                 now = int(time.time())
@@ -65,7 +69,8 @@ class JWTAuthenticationMiddleware:
 
             request.user = User.objects.get(id=user_id)
 
-        except jwt.ExpiredSignatureError:
+        except jwt.ExpiredSignatureError as e:
+            print(e)
             logger.info(
                 "JWT expired | path=%s ip=%s",
                 request.path,

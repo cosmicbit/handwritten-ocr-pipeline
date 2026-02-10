@@ -39,3 +39,7 @@ class UserService:
     def login(self, data):
         userLogin = UserLogin()
         userLogin.serialize(data=data)
+
+    
+    def get_group(self, user):
+        return user.groups.all()

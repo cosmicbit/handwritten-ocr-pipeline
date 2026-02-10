@@ -14,12 +14,12 @@ from .exceptions.user_already_exist import UserAlreadyExist
 from .exceptions.no_default_group import NoDefaultGroup
 
 logger = logging.getLogger(__name__)
-
+userService=UserService()
     
 
 @csrf_exempt
 @public_view
-def register(req, userService=UserService()):
+def register(req):
     resp = require_post(req=req)
     if resp:
         return resp
@@ -67,10 +67,18 @@ def login(req):
         return JsonResponse({'error': 'Invalid credentials'}, status=401)
 
     token = create_jwt_token(user)
+    print("Generated Token:", token)
 
     return JsonResponse({
-        'message': 'Login successful',
-        'token': token
+        'message': {
+            'token': token,
+            'user': {
+                'username': user.username,
+                'is_superAdmin': user.is_superuser,
+                'role': [group.name for group in userService.get_group(user=user)]
+            }
+        }
+        
     }, status=200
     )
 
