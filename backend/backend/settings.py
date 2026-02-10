@@ -44,7 +44,9 @@ INSTALLED_APPS = [
     'corsheaders',
     'auth2',
     'core',
-    'rbac'
+    'rbac',
+    'notification',
+    'profile2',
 ]
 
 MIDDLEWARE = [
