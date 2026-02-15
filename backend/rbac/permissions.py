@@ -7,7 +7,7 @@ import json
 tableDescriptionService=TableDescriptionService()
 User = get_user_model()
 
-def has_permission(permissions: list):
+def has_permission():
     def decorator(view_func):
         @wraps(view_func)
         def wrapper(request, *args, **kwargs):
@@ -19,9 +19,10 @@ def has_permission(permissions: list):
                     status=401
                 )
             print(list(user.groups.all()))
-
-            print("Permission needed : ", permissions)
-
+            permissions = [permission for group in user.groups.all() for permission in group.permissions.all()]
+            print(permissions)
+            if user.is_superuser:
+                return view_func(request, *args, **kwargs)
             for permission in permissions:
                 if not user.has_perm(permission):
                     return JsonResponse(

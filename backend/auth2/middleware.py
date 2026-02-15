@@ -16,7 +16,7 @@ class JWTAuthenticationMiddleware:
 
     def __call__(self, request):
 
-        if request.path.startswith("/admin/") or request.path.startswith("/static/"):
+        if request.path.startswith("/admin/") or request.path.startswith("/static/") or request.path.startswith("/media/"):
             return self.get_response(request)
 
         resolver_match = resolve(request.path)

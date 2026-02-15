@@ -61,3 +61,14 @@ class NotificationService():
         except Exception as e:
             return NotificationReadStatus.FAILED
         
+    def create_notification(self, data):
+        notification = Notification.objects.create(
+            message = data.get("message", ""),
+        )
+
+        group_ids = data.get("group_ids", [])
+        for group_id in group_ids:
+            GroupNotification.objects.create(
+                group_id = group_id,
+                notification_id = notification.id
+            )

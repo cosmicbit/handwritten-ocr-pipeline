@@ -1,6 +1,9 @@
 from django.db import connection
 from ..models import *
 from auth2.models import *
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+from django.contrib.auth.models import Permission
 
 class TableDescriptionService:
     def __init__(self):
@@ -82,3 +85,82 @@ class TableDescriptionService:
 
         return {"message": "Record updated successfully"}
     
+
+    def get_groups(self):
+        return list(Group.objects.all().values("id", "name"))
+    
+
+    def get_permissions_for_group(self, group_id):
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return {"error": "Group not found"}
+
+        permissions = group.permissions.all()
+        return list(permissions.values("id", "name", "codename"))
+    
+    def get_all_permissions(self):
+        permissions = Permission.objects.all()
+        return list(permissions.values("id", "name", "codename"))
+
+    def update_group_permissions(self, group_id, permission_ids):
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return {"error": "Group not found"}
+
+        if permission_ids is None:
+            return {"error": "permission_ids is required"}
+
+        if not isinstance(permission_ids, list):
+            return {"error": "permission_ids must be a list"}
+
+        normalized_ids = []
+        for permission_id in permission_ids:
+            if isinstance(permission_id, bool):
+                return {"error": "permission_ids must contain integers"}
+            if not isinstance(permission_id, int):
+                return {"error": "permission_ids must contain integers"}
+            normalized_ids.append(permission_id)
+
+        permissions = Permission.objects.filter(id__in=normalized_ids)
+        found_ids = set(permissions.values_list("id", flat=True))
+        missing_ids = sorted(set(normalized_ids) - found_ids)
+
+        if missing_ids:
+            return {"error": f"Invalid permission id(s): {missing_ids}"}
+
+        group.permissions.set(permissions)
+        return {
+            "message": "Group permissions updated successfully",
+            "group_id": group.id,
+            "permission_ids": sorted(found_ids),
+        }
+
+    def set_group_permission_assignment(self, group_id, permission_id, assigned):
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return {"error": "Group not found"}
+
+        try:
+            permission = Permission.objects.get(id=permission_id)
+        except Permission.DoesNotExist:
+            return {"error": "Permission not found"}
+
+        if not isinstance(assigned, bool):
+            return {"error": "assigned must be a boolean"}
+
+        if assigned:
+            group.permissions.add(permission)
+            action = "assigned"
+        else:
+            group.permissions.remove(permission)
+            action = "removed"
+
+        return {
+            "message": f"Permission {action} successfully",
+            "group_id": group.id,
+            "permission_id": permission.id,
+            "assigned": assigned,
+        }
