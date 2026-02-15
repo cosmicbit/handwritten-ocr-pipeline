@@ -4,6 +4,7 @@ from django.views.decorators.http import require_POST, require_GET
 from rbac.permissions import has_permission
 from .service.notification_service import NotificationService
 from auth2.services.user_service import UserService
+import json
 
 
 APPLICATION_NAME="notification"
@@ -24,7 +25,7 @@ userService = UserService()
 
 @csrf_exempt
 @require_GET
-@has_permission(PERMISSION_FOR_VIEWING_NOTIFICATION)
+@has_permission()
 def get_notification_for_user(req):
     groups = userService.get_group(req.user)
     notifications = []
@@ -36,7 +37,7 @@ def get_notification_for_user(req):
 
 @csrf_exempt
 @require_GET
-@has_permission(PERMISSION_FOR_VIEWING_NOTIFICATION)
+@has_permission()
 def get_notification_for_group(req):
     groups = userService.get_group(req.user)
     notifications = []
@@ -48,10 +49,20 @@ def get_notification_for_group(req):
 
 @csrf_exempt
 @require_POST
-@has_permission(PERMISSION_FOR_CHANGING_NOTIFICATION)
+@has_permission()
 def update_notification_read(req, nid):
     updated = notificationService.update_notification_read(nid, req.user.id)
     return JsonResponse({
         'message':'Notification has been updated'
     })
+
+@csrf_exempt
+@require_POST
+@has_permission()
+def create_notification(req):
+    data = json.loads(req.body)
+    notificationService.create_notification(data)
+    return JsonResponse({
+        'message':'Notification has been created'
+    })  
 

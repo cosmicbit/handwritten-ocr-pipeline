@@ -10,6 +10,7 @@ class NotificationType(models.Model):
     description = models.TextField(null=True, blank=True)
 
 class Notification(models.Model):
+    title = models.CharField(max_length=255,blank=True, null=True)
     type = models.ForeignKey(NotificationType, on_delete=models.CASCADE)
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)

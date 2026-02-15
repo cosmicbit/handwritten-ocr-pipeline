@@ -22,11 +22,7 @@ def admin(req):
 
 
 
-@has_permission([
-    f"{APPLICATION_NAME}.add_user",
-    f"{APPLICATION_NAME}.view_user"
-    ]
-)
+@has_permission()
 @require_POST
 @csrf_exempt
 def test(req):
@@ -80,3 +76,47 @@ def update_table_data(req, table_name, id):
     except Exception as e:
         return JsonResponse({ 'error': str(e) }, status=400)
     return JsonResponse({'message':f"Successfully updated {table_name}"}, status=201)
+
+@require_GET
+@csrf_exempt
+@is_super_admin
+def get_groups(req):
+    groups = tableDescription.get_groups()
+    return JsonResponse({'message':groups}, status=201)
+
+
+@require_GET
+@csrf_exempt
+@is_super_admin
+def get_permissions_for_group(req, group_id):
+    permissions = tableDescription.get_permissions_for_group(group_id)
+    return JsonResponse({'message':permissions}, status=201)
+
+@require_GET
+@csrf_exempt
+@is_super_admin
+def get_all_permissions(req):
+    permissions = tableDescription.get_all_permissions()
+    return JsonResponse({'message':permissions}, status=201)
+
+
+@require_POST
+@csrf_exempt
+@is_super_admin
+def update_group_permissions(req, group_id, permission_id):
+    data = validate_json(request=req)
+    if isinstance(data, JsonResponse):
+        return data
+
+    assigned = data.get("assigned")
+    result = tableDescription.set_group_permission_assignment(
+        group_id=group_id,
+        permission_id=permission_id,
+        assigned=assigned,
+    )
+
+    if result.get("error"):
+        status = 404 if result["error"] in ("Group not found", "Permission not found") else 400
+        return JsonResponse(result, status=status)
+
+    return JsonResponse(result, status=200)
