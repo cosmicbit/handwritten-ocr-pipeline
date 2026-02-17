@@ -1,0 +1,10 @@
+asgiref==3.11.0
+colorlog==6.10.1
+Django==5.2.9
+django-cors-headers==4.4.0
+pillow==12.1.1
+psycopg==3.3.2
+psycopg2-binary==2.9.9
+PyJWT==2.10.1
+sqlparse==0.5.5
+typing_extensions==4.15.0
