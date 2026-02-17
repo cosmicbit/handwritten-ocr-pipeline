@@ -27,9 +27,9 @@ class UserService:
         user = User.objects.create_user(username=userRegisteration.username.value,
                                          password=userRegisteration.password.value,
                                          email=userRegisteration.email.value,
-                                         group=group
                                          #phone_number=userRegisteration.phoneNumber
                                          )
+        user.groups.add(group)
         token = create_jwt_token(user=user)
         return {
             'message': 'User registered',
