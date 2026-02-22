@@ -1,5 +1,4 @@
-inputFileOne = "image.jpg"
-inputFileTwo = "image2.jpg"
+inputFile = "input.pdf"
 wordsOutputImageFile = "words_output.png"
 linesOutputImage = "lines_output.png"
 curvedLinesOutputImage = "curved_lines_output.png"

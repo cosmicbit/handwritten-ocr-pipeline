@@ -14,5 +14,10 @@ class TrocrRecognizer:
         image: PIL.Image of a single word or line
         """
         pixel_values = self.processor(images=image, return_tensors="pt").pixel_values.to(self.device)
-        generated_ids = self.model.generate(pixel_values)
+        generated_ids = self.model.generate(
+            pixel_values,
+            max_length=128,
+            num_beams=5,
+            early_stopping=True
+        )
         return self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]

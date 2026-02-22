@@ -15,6 +15,7 @@ src/handwriting_ocr_pipeline/detectors/craft_utils.py
 src/handwriting_ocr_pipeline/detectors/imgproc.py
 src/handwriting_ocr_pipeline/detectors/basenet/__init__.py
 src/handwriting_ocr_pipeline/detectors/basenet/vgg16_bn.py
+src/handwriting_ocr_pipeline/language/correct_text.py
 src/handwriting_ocr_pipeline/postprocess/__init__.py
 src/handwriting_ocr_pipeline/postprocess/box_merger.py
 src/handwriting_ocr_pipeline/recognizers/__init__.py

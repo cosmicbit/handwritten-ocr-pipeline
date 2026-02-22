@@ -25,7 +25,7 @@ class CraftDetector:
     def detect(self, image):
         # resize
         img_resized, target_ratio, size_heatmap = resize_aspect_ratio(
-            image, 1280, cv2.INTER_LINEAR
+            image, 2560, cv2.INTER_LINEAR
         )
         ratio_h = ratio_w = 1 / target_ratio
         img_resized = normalizeMeanVariance(img_resized)
@@ -44,7 +44,7 @@ class CraftDetector:
         score_link = y[0, :, :, 1].cpu().data.numpy()
 
         # get boxes
-        boxes, polys = getDetBoxes(score_text, score_link, 0.7, 0.4, 0.4)
+        boxes, polys = getDetBoxes(score_text, score_link, 0.55, 0.35, 0.25)
 
         # adjust coordinates back to image size
         boxes = adjustResultCoordinates(boxes, ratio_w, ratio_h)
