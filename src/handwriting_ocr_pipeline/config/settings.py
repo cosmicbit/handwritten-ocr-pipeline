@@ -1,8 +1,0 @@
-inputFile = "input.pdf"
-wordsOutputImageFile = "words_output.png"
-linesOutputImage = "lines_output.png"
-curvedLinesOutputImage = "curved_lines_output.png"
-hullLinesOutputImage = "hull_lines_output.png"
-recognisedTextFile = "outputTextfile.txt"
-recognisedTextFile2 = "outputTextfile2.txt"
-craftModelFile = "craft_mlt_25k.pth"

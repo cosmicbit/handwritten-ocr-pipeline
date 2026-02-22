@@ -5,3 +5,6 @@ numpy
 scikit-image
 torchvision
 pymupdf
+sentence-transformers
+nltk
+textstat
