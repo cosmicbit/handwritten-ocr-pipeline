@@ -1,12 +1,13 @@
 from ..dtos.user_registeration import UserRegistration
 from django.contrib.auth import get_user_model
-User = get_user_model()
 
 from ..exceptions.user_already_exist import UserAlreadyExist
 from ..dtos.user_login import UserLogin
 from ..jwt_utils import create_jwt_token
 from django.contrib.auth.models import Group
 from ..exceptions.no_default_group import NoDefaultGroup
+
+User = get_user_model()
 
 
 class UserService:
@@ -33,6 +34,7 @@ class UserService:
         token = create_jwt_token(user=user)
         return {
             'message': 'User registered',
+            'role': user.groups.all(),
             'token': token 
         }
     

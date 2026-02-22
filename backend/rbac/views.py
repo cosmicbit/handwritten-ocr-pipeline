@@ -4,12 +4,14 @@ from .permissions import has_permission, check_permission, is_super_admin
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .services.table_desc_service import TableDescriptionService
+from .services.table_data_service import TableDataService
 from django.views.decorators.http import require_POST, require_GET
 from .commons import INVALID_JSON_ERROR, validate_json
 
 
 import json
 tableDescription=TableDescriptionService()
+tableDataService = TableDataService()
 
 APPLICATION_NAME="auth2"
 
@@ -62,6 +64,29 @@ def get_table_data(req, table_name):
     response = tableDescription.get_table_data(table_name, int(page_size), int(page))
     
     return JsonResponse({'message':{ 'data': response, 'total': len(response), 'page': page, 'page_size': page_size }}, status=201)
+
+
+@csrf_exempt
+@require_POST
+@is_super_admin
+def create_table_data(req, table_name):
+    payload = validate_json(request=req)
+    if isinstance(payload, JsonResponse):
+        return JsonResponse({"error": "Invalid JSON format", "message": None}, status=400)
+
+    result = tableDataService.create_table_row(table_name=table_name, payload=payload)
+    status = 201 if result.get("error") is None else 400
+    return JsonResponse(result, status=status)
+
+
+@csrf_exempt
+@is_super_admin
+def table_data_endpoint(req, table_name):
+    if req.method == "GET":
+        return get_table_data(req, table_name)
+    if req.method == "POST":
+        return create_table_data(req, table_name)
+    return JsonResponse({"error": "Invalid request method", "message": None}, status=405)
 
 
 @csrf_exempt

@@ -17,6 +17,10 @@ class TableDescriptionService:
                 cursor,
                 table_name
             )
+            relations = connection.introspection.get_relations(
+                cursor,
+                table_name
+            )
 
         return {
             "table": table_name,
@@ -25,6 +29,7 @@ class TableDescriptionService:
                     "name": col.name,
                     "null": col.null_ok,
                     "type": col.type_code,
+                    'foreignKey': relations.get(col.name)
                 }
                 for col in columns
             ]
