@@ -1,20 +1,21 @@
 import torch
 import cv2
-from handwriting_ocr_pipeline.detectors.craft import CRAFT
-from handwriting_ocr_pipeline.detectors.imgproc import resize_aspect_ratio, normalizeMeanVariance
-from handwriting_ocr_pipeline.utils.weights import remove_module_prefix
-from handwriting_ocr_pipeline.detectors.craft_utils import getDetBoxes ,adjustResultCoordinates
+from detectors.craft import CRAFT
+from detectors.imgproc import resize_aspect_ratio, normalizeMeanVariance
+import utils
+
+from detectors.craft_utils import getDetBoxes ,adjustResultCoordinates
 
 class CraftDetector:
 
-    def __init__(self, weight_path, cuda=False):
+    def __init__(self, weight_path, cuda=True):
         self.cuda = cuda
         
         # Load model
         self.model = CRAFT()
 
         state_dict = torch.load(weight_path, map_location="cpu")
-        state_dict = remove_module_prefix(state_dict)
+        state_dict = utils.remove_module_prefix(state_dict)
         self.model.load_state_dict(state_dict, strict=True)
         
         if cuda and torch.cuda.is_available():

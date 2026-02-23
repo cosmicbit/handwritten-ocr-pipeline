@@ -1,9 +1,6 @@
 import numpy as np
 import cv2
 
-from handwriting_ocr_pipeline.config.paths import OUTPUTS_DIR
-import handwriting_ocr_pipeline.config.settings as settings
-
 def enhance_document(img):
     # 1. grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -38,10 +35,9 @@ def print_progress_bar(progress: float, end: int) -> None:
     if progress == end:
         print()
 
-def draw_boxes(image: np.typing.NDArray, boxes: np.typing.NDArray, save_path=OUTPUTS_DIR / settings.wordsOutputImageFile):
+def draw_boxes(image: np.typing.NDArray, boxes: np.typing.NDArray, save_path="outputs/words_output_image.png"):
     img = image.copy()
     for b in boxes:
-        # b = np.concatenate(b, axis=0)
         x_min = int(b[:, 0].min())
         y_min = int(b[:, 1].min())
         x_max = int(b[:, 0].max())
@@ -50,9 +46,8 @@ def draw_boxes(image: np.typing.NDArray, boxes: np.typing.NDArray, save_path=OUT
         cv2.rectangle(img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
 
     cv2.imwrite(save_path, img)
-    print(f"[+] Saved raw box image: {save_path}")
 
-def draw_boxes_of_lines(image: np.typing.NDArray, boxes: list, save_path=OUTPUTS_DIR / settings.linesOutputImage):
+def draw_boxes_of_lines(image: np.typing.NDArray, boxes: list, save_path="outputs/lines_output_image.png"):
     img = image.copy()
     for b in boxes:
         b = np.concatenate(b, axis=0)
@@ -64,12 +59,10 @@ def draw_boxes_of_lines(image: np.typing.NDArray, boxes: list, save_path=OUTPUTS
         cv2.rectangle(img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
 
     cv2.imwrite(save_path, img)
-    print(f"[+] Saved raw box image: {save_path}")
 
 def save_text(output_path, text):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(text)
-    print(f"[+] Saved as text file: {output_path}")
 
 def compute_curved_line_envelopes(lines):
     """
@@ -196,3 +189,9 @@ def extract_contour_region(image, contour):
 
     return cropped
 
+def remove_module_prefix(state_dict):
+    new_dict = {}
+    for k, v in state_dict.items():
+        new_k = k.replace("module.", "") if k.startswith("module.") else k
+        new_dict[new_k] = v
+    return new_dict

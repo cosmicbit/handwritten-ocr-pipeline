@@ -3,9 +3,9 @@ from PIL import Image
 import torch
 
 class TrocrRecognizer:
-    def __init__(self):
-        self.processor = TrOCRProcessor.from_pretrained("models/trocr-local")
-        self.model = VisionEncoderDecoderModel.from_pretrained("models/trocr-local")
+    def __init__(self, model_path = "models/trocr-local"):
+        self.processor = TrOCRProcessor.from_pretrained(model_path)
+        self.model = VisionEncoderDecoderModel.from_pretrained(model_path)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
