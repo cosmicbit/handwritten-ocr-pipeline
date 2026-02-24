@@ -1,12 +1,17 @@
-After cloning the repo and switching to the handwritten-ocr branch follow these instructions.
+After cloning the repo and follow these instructions.
 
-## 1. Create virtual environment
+## 1. Enter the directory
+```bash
+cd handwritten-ocr-pipeline
+```
+
+## 2. Create virtual environment
 
 ```bash
 python -m venv .venv
 ```
 
-## 2. Activate the virtual environment
+## 3. Activate the virtual environment
 
 **Linux / macOS**
 ```bash
@@ -24,13 +29,15 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```bash
 pip install -r requirements.txt
 ```
+## 5. Enter the core directory
+
 ```bash
-pip install -e .
+cd core
 ```
 
-## 5. Run the main file
+## 6. Run the main file
 
 ```bash
-python -m handwriting_ocr_pipeline.main
+python main.py
 ```
 You can see the output in the Outputs/ folder
