@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'rbac',
     'notification',
     'profile2',
+    'channels'
 ]
 
 MIDDLEWARE = [
@@ -95,6 +96,18 @@ DATABASES = {
     }
 }
 
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [REDIS_URL],
+        },
+    },
+}
+
+
 
 
 # Password validation
@@ -138,6 +151,8 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+ASGI_APPLICATION = "backend.asgi.application"
 
 JWT_SECRET = "ASDASDASDASDASDASDASVSSWDFVSDaasdfasdfsfsfdsdfsd"
 JWT_ALGORITHM = "HS256"
