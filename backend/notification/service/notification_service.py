@@ -59,12 +59,48 @@ class NotificationService():
 
         return result
 
+    def get_notifications_created_by_user(self, user_id):
+        notifications = Notification.objects.filter(created_by_id=user_id).select_related("type")
+        notification_ids = list(notifications.values_list("id", flat=True))
+
+        seen_reads = NotificationRead.objects.filter(
+            notification_id__in=notification_ids,
+            user_id=user_id,
+        ).values_list("notification_id", "read_at")
+        seen_at_map = {notification_id: read_at for notification_id, read_at in seen_reads}
+
+        creator_reads = NotificationRead.objects.filter(
+            notification_id__in=notification_ids
+        ).values_list("notification_id", "user_id")
+        creator_read_map = {}
+        for notification_id, reader_user_id in creator_reads:
+            creator_read_map.setdefault(notification_id, []).append(reader_user_id)
+
+        result = []
+        for notification in notifications:
+            result.append({
+                "notification_id": notification.id,
+                "title": notification.title,
+                "message": notification.message,
+                "created_at": notification.created_at,
+                "is_seen": notification.id in seen_at_map,
+                "seen_at": seen_at_map.get(notification.id),
+                "can_view_seen_by": True,
+                "read_by_user_ids": creator_read_map.get(notification.id, []),
+            })
+
+        return result
+
     def _user_can_access_notification(self, notification_id, user_id) -> bool:
-        return GroupNotification.objects.filter(
+        has_group_access = GroupNotification.objects.filter(
             notification_id=notification_id,
             status=GroupNotification.Status.ACTIVE,
             group__user__id=user_id,
         ).exists()
+        if has_group_access:
+            return True
+
+        return Notification.objects.filter(id=notification_id, created_by_id=user_id).exists()
 
     def update_notification_read(self, notification_id, user_id):
         try:

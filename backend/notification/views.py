@@ -41,6 +41,11 @@ def _dedupe_notifications(notifications):
 def get_notification_for_user(req):
     groups = userService.get_group(req.user)
     notifications = []
+
+    notifications.extend(
+        notificationService.get_notifications_created_by_user(req.user.id)
+    )
+
     for group in groups:
         notifications.extend(
             notificationService.get_notifications_for_group(
