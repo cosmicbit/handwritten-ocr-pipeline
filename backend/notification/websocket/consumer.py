@@ -1,8 +1,14 @@
 import json
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
+from channels.db import database_sync_to_async
 
 class NotificationConsumer(AsyncJsonWebsocketConsumer):
+
+    @database_sync_to_async
+    def connectToDB(self):
+        return None
+    
     async def connect(self):
         user = self.scope.get("user")
         if not user or user.is_anonymous:
@@ -33,3 +39,8 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
             return json.loads(text_data)
         except json.JSONDecodeError:
             return {"type": "error", "message": "Invalid JSON payload"}
+        
+    
+        
+        
+    
