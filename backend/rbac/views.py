@@ -6,10 +6,12 @@ from django.views.decorators.csrf import csrf_exempt
 from .services.table_desc_service import TableDescriptionService
 from django.views.decorators.http import require_POST, require_GET
 from .commons import INVALID_JSON_ERROR, validate_json
+from notification.service.notification_service import NotificationService
 
 
 import json
 tableDescription=TableDescriptionService()
+notificationService = NotificationService()
 
 APPLICATION_NAME="auth2"
 
@@ -75,6 +77,18 @@ def update_table_data(req, table_name, id):
         tableDescription.update_table_data(table_name, id, data)
     except Exception as e:
         return JsonResponse({ 'error': str(e) }, status=400)
+
+    group_ids = list(req.user.groups.values_list("id", flat=True))
+    notificationService.create_notification(
+        data={
+            "title": "Database record updated",
+            "message": f"{req.user.username} updated {table_name} (id={id})",
+            "group_ids": group_ids,
+            "type_name": "db_table_change",
+        },
+        created_by_id=req.user.id,
+    )
+
     return JsonResponse({'message':f"Successfully updated {table_name}"}, status=201)
 
 @require_GET

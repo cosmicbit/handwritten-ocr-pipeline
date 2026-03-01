@@ -12,6 +12,13 @@ class NotificationType(models.Model):
 class Notification(models.Model):
     title = models.CharField(max_length=255,blank=True, null=True)
     type = models.ForeignKey(NotificationType, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_notifications",
+    )
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     
