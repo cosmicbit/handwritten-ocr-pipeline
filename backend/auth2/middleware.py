@@ -68,6 +68,10 @@ class JWTAuthenticationMiddleware:
                 )
 
             request.user = User.objects.get(id=user_id)
+            # Backfill role profile even if role was changed via queryset.update(...)
+            # (that path bypasses post_save signals).
+            from auth2.signals import ensure_role_profile_for_user
+            ensure_role_profile_for_user(request.user)
 
         except jwt.ExpiredSignatureError as e:
             print(e)

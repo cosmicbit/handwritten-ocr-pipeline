@@ -9,7 +9,7 @@ class Department(models.Model):
 
 class Teacher(models.Model):
 
-    user = models.ForeignKey(
+    user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="teacher_user",
@@ -19,7 +19,16 @@ class Teacher(models.Model):
         on_delete=models.CASCADE,
         related_name="teacher_department"
     )
-    created_at = models.DateField(auto_created=True)
+    created_at = models.DateField(auto_now_add=True)
+
+
+class TrueSubject(models.Model):
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=10, unique=True)
+    created_at = models.DateField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
 
 
 
@@ -35,10 +44,10 @@ class Subject(models.Model):
         SEVEN = 7, 'SEVEN'
         EIGHT = 8, 'EIGHT'
 
-    name = models.CharField(max_length=100)
-    code = models.CharField(
-        max_length=10,
-        unique=True   # ensures unique subject code
+    true_subject = models.ForeignKey(
+        TrueSubject,
+        on_delete=models.CASCADE,
+        related_name="subjects",
     )
     semester = models.IntegerField(
         choices=Semester.choices
@@ -48,6 +57,11 @@ class Subject(models.Model):
         on_delete=models.CASCADE,
         related_name="subject_department"
     )
+    institution = models.ForeignKey(
+        "Institution",
+        on_delete=models.CASCADE,
+        related_name="subjects",
+    )
     teacher = models.ForeignKey(
         Teacher,
         on_delete=models.CASCADE,
@@ -55,11 +69,19 @@ class Subject(models.Model):
     )
     created_at = models.DateField(auto_now_add=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "true_subject", "semester", "department"],
+                name="core_unique_subject_mapping",
+            )
+        ]
+
 
  
 class Student(models.Model):
    
-    user = models.ForeignKey(
+    user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="student_user",
@@ -74,6 +96,24 @@ class Student(models.Model):
         related_name="department_student"
     )
     created_at = models.DateField(auto_now_add=True)
+
+
+class Institution(models.Model):
+    name = models.CharField(max_length=200)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE
+    )
+    teachers = models.ManyToManyField(
+        Teacher, 
+        related_name="teachers_in_institution"
+    )
+    students = models.ManyToManyField(
+        Student, 
+        related_name="students_in_instituation"
+    )
+    created_at = models.DateField(auto_now_add=True)
+
 
 class StudentUnderTeacher(models.Model):
     student = models.ForeignKey(
@@ -161,3 +201,34 @@ class TeacherInstitution(models.Model):
     def save(self, *args, **kwargs):
         self.full_clean()
         return super().save(*args, **kwargs)
+
+
+class StudentMark(models.Model):
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE,
+        related_name="student_marks",
+    )
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="marks",
+    )
+    total_mark = models.PositiveIntegerField()
+    acquired_mark = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["subject", "student"],
+                name="core_unique_subject_student_mark",
+            ),
+            models.CheckConstraint(
+                condition=Q(acquired_mark__lte=F("total_mark")),
+                name="core_acquired_mark_lte_total_mark",
+            ),
+        ]
+
+    def __str__(self):
+        return f"student={self.student_id} subject={self.subject_id} marks={self.acquired_mark}/{self.total_mark}"

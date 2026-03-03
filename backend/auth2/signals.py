@@ -1,11 +1,10 @@
 import logging
 
+from core.models import Department, Institution, Student, Teacher
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
-from django.db.models.signals import post_save
+from django.db.models.signals import post_migrate, post_save
 from django.dispatch import receiver
-from django.db.models.signals import post_migrate
-
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -78,6 +77,44 @@ def add_default_group_on_user_create(sender, instance, created, **kwargs):
 
     instance.groups.add(default_group)
 
+
+@receiver(post_save, sender=User)
+def ensure_role_profile_exists(sender, instance, created, **kwargs):
+    ensure_role_profile_for_user(instance)
+
+
+def ensure_role_profile_for_user(user):
+    instance = user
+    role_name = str(getattr(instance, "role", "") or "").lower().strip()
+    if not role_name:
+        first_group = instance.groups.first()
+        role_name = str(first_group.name).lower().strip() if first_group else "student"
+    if role_name not in {"student", "teacher", "institution", "admin"}:
+        role_name = "student"
+
+    if role_name == "teacher":
+        if Teacher.objects.filter(user=instance).exists():
+            return
+        department, _ = Department.objects.get_or_create(name="General")
+        Teacher.objects.create(user=instance, department=department)
+        return
+    
+    if role_name == "institution":
+        if Institution.objects.filter(user=instance).exists():
+            return
+        Institution.objects.create(
+            user=instance,
+            name=instance.username or instance.email or f"institution-{instance.id}",
+        )
+        return
+    
+    if role_name == "admin":
+        return
+
+    department, _ = Department.objects.get_or_create(name="General")
+    if Student.objects.filter(user=instance).exists():
+        return
+    Student.objects.create(user=instance, department=department)
 
 
 @receiver(post_migrate)

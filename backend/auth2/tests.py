@@ -3,6 +3,7 @@ import json
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import TestCase
+from core.models import Institution, Student, Teacher
 
 
 User = get_user_model()
@@ -93,3 +94,68 @@ class AuthRoleTests(TestCase):
         body = response.json()
         self.assertEqual(body["message"]["user"]["role"], "teacher")
         self.assertTrue(body["message"]["token"])
+
+
+class AuthRoleProfileSignalTests(TestCase):
+    def test_student_profile_created_for_student_role(self):
+        user = User.objects.create_user(
+            username="profile_student",
+            email="profile_student@example.com",
+            password="Pass@12345",
+            role="student",
+        )
+        self.assertTrue(Student.objects.filter(user=user).exists())
+
+    def test_teacher_profile_created_for_teacher_role(self):
+        user = User.objects.create_user(
+            username="profile_teacher",
+            email="profile_teacher@example.com",
+            password="Pass@12345",
+            role="teacher",
+        )
+        self.assertTrue(Teacher.objects.filter(user=user).exists())
+
+    def test_institution_profile_created_for_institution_role(self):
+        user = User.objects.create_user(
+            username="profile_institution",
+            email="profile_institution@example.com",
+            password="Pass@12345",
+            role="institution",
+        )
+        self.assertTrue(Institution.objects.filter(user=user).exists())
+
+    def test_existing_user_save_creates_student_profile_when_role_is_student(self):
+        user = User.objects.create_user(
+            username="profile_role_update",
+            email="profile_role_update@example.com",
+            password="Pass@12345",
+            role="teacher",
+        )
+        user.role = "student"
+        user.save(update_fields=["role"])
+
+        self.assertTrue(Student.objects.filter(user=user).exists())
+
+    def test_existing_user_save_creates_teacher_profile_when_role_is_teacher(self):
+        user = User.objects.create_user(
+            username="profile_role_update_teacher",
+            email="profile_role_update_teacher@example.com",
+            password="Pass@12345",
+            role="student",
+        )
+        user.role = "teacher"
+        user.save(update_fields=["role"])
+
+        self.assertTrue(Teacher.objects.filter(user=user).exists())
+
+    def test_existing_user_save_creates_institution_profile_when_role_is_institution(self):
+        user = User.objects.create_user(
+            username="profile_role_update_institution",
+            email="profile_role_update_institution@example.com",
+            password="Pass@12345",
+            role="student",
+        )
+        user.role = "institution"
+        user.save(update_fields=["role"])
+
+        self.assertTrue(Institution.objects.filter(user=user).exists())
