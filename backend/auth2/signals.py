@@ -10,6 +10,8 @@ from django.db.models.signals import post_migrate
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
+ROLE_GROUPS = ("student", "teacher", "institution")
+
 GROUP_PERMISSION_MAP = {
     "student": [
         "view_user",
@@ -19,6 +21,33 @@ GROUP_PERMISSION_MAP = {
         "view_group",
         "view_permission",
         "view_notification",
+        "view_notificationtype",
+    ],
+    "teacher": [
+        "view_user",
+        "view_language",
+        "view_location",
+        "view_timezone",
+        "view_group",
+        "view_permission",
+        "view_notification",
+        "add_notification",
+        "change_notification",
+        "view_notificationtype",
+    ],
+    "institution": [
+        "view_user",
+        "add_user",
+        "change_user",
+        "view_language",
+        "view_location",
+        "view_timezone",
+        "view_group",
+        "view_permission",
+        "view_notification",
+        "add_notification",
+        "change_notification",
+        "view_notificationtype",
     ],
     "admin": [
         "view_user",
@@ -34,9 +63,17 @@ def add_default_group_on_user_create(sender, instance, created, **kwargs):
     if not created:
         return
 
-    default_group = Group.objects.filter(name="student").first()
+    role_name = getattr(instance, "role", None) or "student"
+    role_name = str(role_name).lower()
+    if role_name not in ROLE_GROUPS:
+        role_name = "student"
+
+    if instance.groups.exists():
+        return
+
+    default_group = Group.objects.filter(name=role_name).first()
     if not default_group:
-        logger.warning("Default group 'student' not found for user_id=%s", instance.id)
+        logger.warning("Default group '%s' not found for user_id=%s", role_name, instance.id)
         return
 
     instance.groups.add(default_group)
@@ -48,7 +85,11 @@ def ensure_default_groups(sender, **kwargs):
     # limit to your app migrations
     if sender.name != "auth2":
         return
-    Group.objects.get_or_create(name="student")
+    for group_name in ROLE_GROUPS:
+        group, _ = Group.objects.get_or_create(name=group_name)
+        codenames = GROUP_PERMISSION_MAP.get(group_name, [])
+        permissions = Permission.objects.filter(codename__in=codenames)
+        group.permissions.add(*permissions)
 
 
 @receiver(post_save, sender=Group)

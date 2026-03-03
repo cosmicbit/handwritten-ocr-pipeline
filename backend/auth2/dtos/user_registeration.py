@@ -6,6 +6,7 @@ class UserRegistration(BaseDTO):
         self.username = AttributeObject(required=True)
         self.password = AttributeObject(required=True)
         self.email = AttributeObject(required=True)
+        self.role = AttributeObject(required=True)
         self.firstName = AttributeObject()
         self.lastName = AttributeObject()
         self.dateOfBirth = AttributeObject()

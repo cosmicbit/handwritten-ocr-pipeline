@@ -6,6 +6,12 @@ class Gender(models.TextChoices):
     FEMALE = 'F', "Female"
     OTHER = 'O', "Other"
 
+
+class Role(models.TextChoices):
+    INSTITUTION = "institution", "Institution"
+    TEACHER = "teacher", "Teacher"
+    STUDENT = "student", "Student"
+
 class Timezone(models.Model):
     name = models.CharField(max_length=50)
 
@@ -36,6 +42,7 @@ class User(AbstractUser):
     )
     bio = models.TextField(blank=True,null=True)
     gender = models.CharField(max_length=1, choices=Gender.choices, null=True, blank=True)
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
     timezone = models.ForeignKey(Timezone, on_delete=models.SET_NULL, null=True, blank=True)
     language = models.ForeignKey(Language, on_delete=models.SET_NULL, blank=True, null=True)
     location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True, blank=True)
