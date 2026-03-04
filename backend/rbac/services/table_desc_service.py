@@ -1,4 +1,5 @@
-from django.db import connection
+import re
+from django.db import connection, IntegrityError, DatabaseError
 from ..models import *
 from auth2.models import *
 from django.contrib.auth import get_user_model
@@ -45,17 +46,86 @@ class TableDescriptionService:
 
         offset = (page - 1) * page_size
         with connection.cursor() as cursor:
-            query = f"""
-                SELECT *
-                FROM {table_name} order by id
-                LIMIT %s OFFSET %s
-            """
-            cursor.execute(query, [page_size, offset])
+            primary_key_column = connection.introspection.get_primary_key_column(cursor, table_name)
+            columns_info = connection.introspection.get_table_description(cursor, table_name)
+            fallback_order_column = columns_info[0].name if columns_info else None
+            order_column = primary_key_column or fallback_order_column
+
+            query = f"SELECT * FROM {table_name}"
+            if order_column:
+                query = f"{query} ORDER BY {order_column}"
+            query = f"{query} LIMIT %s OFFSET %s"
+
+            try:
+                cursor.execute(query, [page_size, offset])
+            except DatabaseError as exc:
+                return {"error": str(exc)}
+
             rows = cursor.fetchall()
             columns = [col[0] for col in cursor.description]
 
         print(rows)
         return [dict(zip(columns, row)) for row in rows]
+
+    def insert_table_data(self, table_name, data: dict):
+        if not self.table_exists(table_name):
+            return {"error": "No matching table found"}
+
+        if not isinstance(data, dict) or not data:
+            return {"error": "No data to insert"}
+
+        payload = dict(data)
+
+        with connection.cursor() as cursor:
+            columns_info = connection.introspection.get_table_description(cursor, table_name)
+            valid_columns = {col.name for col in columns_info}
+            primary_key_column = connection.introspection.get_primary_key_column(cursor, table_name)
+
+        if "id" in payload:
+            payload.pop("id")
+
+        if not payload:
+            return {"error": "No data to insert"}
+
+        invalid_columns = [column for column in payload.keys() if column not in valid_columns]
+        if invalid_columns:
+            return {"error": f"Invalid column(s): {invalid_columns}"}
+
+        columns = list(payload.keys())
+        placeholders = ", ".join(["%s"] * len(columns))
+        columns_clause = ", ".join(columns)
+        values = [payload[column] for column in columns]
+
+        query = f"""
+            INSERT INTO {table_name} ({columns_clause})
+            VALUES ({placeholders})
+        """
+        if primary_key_column:
+            query = f"{query} RETURNING {primary_key_column}"
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query, values)
+                inserted_id = cursor.fetchone()[0] if primary_key_column else None
+        except IntegrityError as exc:
+            error_text = str(exc)
+            duplicate_match = re.search(r"Key \((?P<field>[^)]+)\)=\((?P<value>[^)]+)\) already exists", error_text)
+            if "duplicate key value violates unique constraint" in error_text and duplicate_match:
+                return {
+                    "error": f"{duplicate_match.group('field')} '{duplicate_match.group('value')}' already exists",
+                    "code": "duplicate_key",
+                    "field": duplicate_match.group("field"),
+                    "value": duplicate_match.group("value"),
+                }
+            return {"error": error_text, "code": "integrity_error"}
+        except DatabaseError as exc:
+            return {"error": str(exc), "code": "database_error"}
+
+        return {
+            "message": "Record inserted successfully",
+            "id": inserted_id,
+            "data": payload,
+        }
     
     from django.db import connection
 

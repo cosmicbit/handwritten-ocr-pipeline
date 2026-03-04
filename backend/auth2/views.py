@@ -11,7 +11,6 @@ from .decorator import public_view
 from rbac.permissions import has_permission, check_permission
 from .services.user_service import UserService
 from .exceptions.user_already_exist import UserAlreadyExist
-from .exceptions.no_default_group import NoDefaultGroup
 
 logger = logging.getLogger(__name__)
 userService=UserService()
@@ -33,7 +32,7 @@ def register(req):
         response = userService.register(data=data)
         logger.info("New user registered ")
         return JsonResponse(response,status=201)
-    except NoDefaultGroup as e:
+    except ValueError as e:
         return JsonResponse({ 'error': str(e) }, status=400)
     except UserAlreadyExist as e:
         logger.exception(e)
@@ -68,17 +67,7 @@ def login(req):
 
     token = create_jwt_token(user)
     print("Generated Token:", token)
-
-    return JsonResponse({
-        'message': {
-            'token': token,
-            'user': {
-                'username': user.username,
-                'is_superAdmin': user.is_superuser,
-                'role': [group.name for group in userService.get_group(user=user)]
-            }
-        }
-        
-    }, status=200
+    return JsonResponse(
+        userService.build_auth_response(user=user, token=token, info_message="Login successful"),
+        status=200,
     )
-

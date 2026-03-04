@@ -54,16 +54,37 @@ def get_tables(req):
     return JsonResponse({ 'message': response }, status=201)
 
 
-require_GET
 @csrf_exempt
 @is_super_admin
 def get_table_data(req, table_name):
-    page = req.GET.get("page", 1)
-    page_size = req.GET.get("pageSize", 20)
-    print( page, page_size)
-    response = tableDescription.get_table_data(table_name, int(page_size), int(page))
-    
-    return JsonResponse({'message':{ 'data': response, 'total': len(response), 'page': page, 'page_size': page_size }}, status=201)
+    if req.method == "GET":
+        page = req.GET.get("page", 1)
+        page_size = req.GET.get("pageSize", 20)
+        print(page, page_size)
+        response = tableDescription.get_table_data(table_name, int(page_size), int(page))
+        if isinstance(response, dict) and response.get("error"):
+            status = 404 if response["error"] == "No matching table found" else 400
+            return JsonResponse(response, status=status)
+        return JsonResponse(
+            {'message': {'data': response, 'total': len(response), 'page': page, 'page_size': page_size}},
+            status=200,
+        )
+
+    if req.method == "POST":
+        data = validate_json(request=req)
+        if isinstance(data, JsonResponse):
+            return data
+
+        response = tableDescription.insert_table_data(table_name, data)
+        if response.get("error"):
+            if response.get("error") == "No matching table found":
+                return JsonResponse(response, status=404)
+            if response.get("code") in ("integrity_error", "duplicate_key"):
+                return JsonResponse(response, status=409)
+            return JsonResponse(response, status=400)
+        return JsonResponse({"message": response}, status=201)
+
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
 @csrf_exempt
