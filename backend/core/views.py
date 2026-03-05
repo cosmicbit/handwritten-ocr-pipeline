@@ -1,4 +1,5 @@
 import json
+import os
 
 from django.db.models import Q
 from django.db import IntegrityError
@@ -7,8 +8,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from auth2.models import Role, User
+from rbac.permissions import has_permission
 
-from .models import Department, Institution, Student, StudentMark, StudentUnderTeacher, Subject, Teacher, TrueSubject
+from .models import Department, Institution, Student, StudentMark, StudentUnderTeacher, Subject, Teacher, TeacherPDFUpload, TeacherSubjectAnswerKey, TrueSubject
 
 
 def _parse_json(request):
@@ -29,6 +31,15 @@ def _require_role(request, role_name):
 
 def _get_institution_for_user(user):
     return Institution.objects.filter(user=user).first()
+
+
+def _get_department_subjects(institution, department):
+    return list(
+        Subject.objects.filter(
+            institution=institution,
+            department=department,
+        ).order_by("id")
+    )
 
 
 @require_GET
@@ -86,7 +97,7 @@ def institution_add_teacher(request):
     if not teacher_user:
         return JsonResponse({"error": "Teacher user not found"}, status=404)
 
-    department = Department.objects.filter(id=department_id).first()
+    department = Department.objects.filter(id=department_id, institution=institution).first()
     if not department:
         return JsonResponse({"error": "Department not found"}, status=404)
 
@@ -134,14 +145,16 @@ def institution_add_student(request):
     if not student_user:
         return JsonResponse({"error": "Student user not found"}, status=404)
 
-    department = Department.objects.filter(id=department_id).first()
+    department = Department.objects.filter(id=department_id, institution=institution).first()
     if not department:
         return JsonResponse({"error": "Department not found"}, status=404)
+    subjects = _get_department_subjects(institution, department)
 
     student, _ = Student.objects.get_or_create(user=student_user, defaults={"department": department})
     if student.department_id != department.id:
         student.department = department
         student.save(update_fields=["department"])
+    student.subjects.set(subjects)
 
     institution.students.add(student)
 
@@ -152,6 +165,7 @@ def institution_add_student(request):
                 "student_id": student.id,
                 "student_user_id": student_user.id,
                 "department_id": department.id,
+                "subject_ids": list(student.subjects.values_list("id", flat=True).order_by("id")),
             }
         },
         status=200,
@@ -184,7 +198,7 @@ def institution_create_teacher(request):
     if not institution:
         return JsonResponse({"error": "Institution profile not found"}, status=404)
 
-    department = Department.objects.filter(id=department_id).first()
+    department = Department.objects.filter(id=department_id, institution=institution).first()
     if not department:
         return JsonResponse({"error": "Department not found"}, status=404)
 
@@ -245,9 +259,10 @@ def institution_create_student(request):
     if not institution:
         return JsonResponse({"error": "Institution profile not found"}, status=404)
 
-    department = Department.objects.filter(id=department_id).first()
+    department = Department.objects.filter(id=department_id, institution=institution).first()
     if not department:
         return JsonResponse({"error": "Department not found"}, status=404)
+    subjects = _get_department_subjects(institution, department)
 
     try:
         student_user = User.objects.create_user(
@@ -263,6 +278,7 @@ def institution_create_student(request):
     if student.department_id != department.id:
         student.department = department
         student.save(update_fields=["department"])
+    student.subjects.set(subjects)
 
     institution.students.add(student)
 
@@ -273,6 +289,7 @@ def institution_create_student(request):
                 "student_id": student.id,
                 "institution_id": institution.id,
                 "department_id": department.id,
+                "subject_ids": list(student.subjects.values_list("id", flat=True).order_by("id")),
                 "role": student_user.role,
             }
         },
@@ -287,7 +304,13 @@ def institution_departments(request):
     if auth_error:
         return auth_error
 
-    departments = list(Department.objects.all().values("id", "name").order_by("name"))
+    institution = _get_institution_for_user(request.user)
+    if not institution:
+        return JsonResponse({"error": "Institution profile not found"}, status=404)
+
+    departments = list(
+        Department.objects.filter(institution=institution).values("id", "name").order_by("name")
+    )
     return JsonResponse({"message": departments}, status=200)
 
 
@@ -444,7 +467,14 @@ def institution_add_department(request):
     if not name:
         return JsonResponse({"error": "name is required"}, status=400)
 
-    department, created = Department.objects.get_or_create(name=name)
+    institution = _get_institution_for_user(request.user)
+    if not institution:
+        return JsonResponse({"error": "Institution profile not found"}, status=404)
+
+    department, created = Department.objects.get_or_create(
+        name=name,
+        institution=institution,
+    )
     return JsonResponse(
         {
             "message": {
@@ -483,7 +513,7 @@ def institution_add_subject(request):
     if not institution:
         return JsonResponse({"error": "Institution profile not found"}, status=404)
 
-    department = Department.objects.filter(id=department_id).first()
+    department = Department.objects.filter(id=department_id, institution=institution).first()
     if not department:
         return JsonResponse({"error": "Department not found"}, status=404)
 
@@ -533,6 +563,315 @@ def institution_add_subject(request):
             }
         },
         status=201,
+    )
+
+
+@csrf_exempt
+@require_POST
+def institution_update_teacher(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    teacher_id = data.get("teacher_id")
+    department_id = data.get("department_id")
+    if not teacher_id or not department_id:
+        return JsonResponse({"error": "teacher_id and department_id are required"}, status=400)
+
+    institution = _get_institution_for_user(request.user)
+    if not institution:
+        return JsonResponse({"error": "Institution profile not found"}, status=404)
+
+    teacher = institution.teachers.filter(id=teacher_id).first()
+    if not teacher:
+        return JsonResponse({"error": "Teacher not found in your institution"}, status=404)
+
+    department = Department.objects.filter(id=department_id, institution=institution).first()
+    if not department:
+        return JsonResponse({"error": "Department not found"}, status=404)
+
+    teacher.department = department
+    teacher.save(update_fields=["department"])
+
+    return JsonResponse(
+        {
+            "message": {
+                "teacher_id": teacher.id,
+                "department_id": teacher.department_id,
+            }
+        },
+        status=200,
+    )
+
+
+@csrf_exempt
+@require_POST
+def institution_remove_teacher(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    teacher_id = data.get("teacher_id")
+    if not teacher_id:
+        return JsonResponse({"error": "teacher_id is required"}, status=400)
+
+    institution = _get_institution_for_user(request.user)
+    if not institution:
+        return JsonResponse({"error": "Institution profile not found"}, status=404)
+
+    teacher = institution.teachers.filter(id=teacher_id).first()
+    if not teacher:
+        return JsonResponse({"error": "Teacher not found in your institution"}, status=404)
+
+    assigned_subjects_count = Subject.objects.filter(institution=institution, teacher=teacher).count()
+    if assigned_subjects_count > 0:
+        return JsonResponse(
+            {
+                "error": "Teacher has assigned subjects in this institution. Reassign or remove them first.",
+                "assigned_subjects_count": assigned_subjects_count,
+            },
+            status=409,
+        )
+
+    institution.teachers.remove(teacher)
+    return JsonResponse(
+        {"message": {"teacher_id": teacher.id, "removed": True}},
+        status=200,
+    )
+
+
+@csrf_exempt
+@require_POST
+def institution_update_student(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    student_id = data.get("student_id")
+    department_id = data.get("department_id")
+    if not student_id or not department_id:
+        return JsonResponse({"error": "student_id and department_id are required"}, status=400)
+
+    institution = _get_institution_for_user(request.user)
+    if not institution:
+        return JsonResponse({"error": "Institution profile not found"}, status=404)
+
+    student = institution.students.filter(id=student_id).first()
+    if not student:
+        return JsonResponse({"error": "Student not found in your institution"}, status=404)
+
+    department = Department.objects.filter(id=department_id, institution=institution).first()
+    if not department:
+        return JsonResponse({"error": "Department not found"}, status=404)
+
+    student.department = department
+    student.save(update_fields=["department"])
+
+    return JsonResponse(
+        {
+            "message": {
+                "student_id": student.id,
+                "department_id": student.department_id,
+            }
+        },
+        status=200,
+    )
+
+
+@csrf_exempt
+@require_POST
+def institution_remove_student(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    student_id = data.get("student_id")
+    if not student_id:
+        return JsonResponse({"error": "student_id is required"}, status=400)
+
+    institution = _get_institution_for_user(request.user)
+    if not institution:
+        return JsonResponse({"error": "Institution profile not found"}, status=404)
+
+    student = institution.students.filter(id=student_id).first()
+    if not student:
+        return JsonResponse({"error": "Student not found in your institution"}, status=404)
+
+    institution.students.remove(student)
+    return JsonResponse(
+        {"message": {"student_id": student.id, "removed": True}},
+        status=200,
+    )
+
+
+@csrf_exempt
+@require_POST
+def institution_update_department(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    department_id = data.get("department_id")
+    name = str(data.get("name", "")).strip()
+    if not department_id or not name:
+        return JsonResponse({"error": "department_id and name are required"}, status=400)
+
+    institution = _get_institution_for_user(request.user)
+    if not institution:
+        return JsonResponse({"error": "Institution profile not found"}, status=404)
+
+    department = Department.objects.filter(id=department_id, institution=institution).first()
+    if not department:
+        return JsonResponse({"error": "Department not found"}, status=404)
+
+    department.name = name
+    try:
+        department.save(update_fields=["name"])
+    except IntegrityError:
+        return JsonResponse(
+            {"error": "Department with this name already exists in your institution"},
+            status=409,
+        )
+
+    return JsonResponse(
+        {"message": {"department_id": department.id, "name": department.name}},
+        status=200,
+    )
+
+
+@csrf_exempt
+@require_POST
+def institution_remove_department(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    department_id = data.get("department_id")
+    if not department_id:
+        return JsonResponse({"error": "department_id is required"}, status=400)
+
+    institution = _get_institution_for_user(request.user)
+    if not institution:
+        return JsonResponse({"error": "Institution profile not found"}, status=404)
+
+    department = Department.objects.filter(id=department_id, institution=institution).first()
+    if not department:
+        return JsonResponse({"error": "Department not found"}, status=404)
+
+    teacher_count = Teacher.objects.filter(department=department).count()
+    student_count = Student.objects.filter(department=department).count()
+    subject_count = Subject.objects.filter(institution=institution, department=department).count()
+    if teacher_count > 0 or student_count > 0 or subject_count > 0:
+        return JsonResponse(
+            {
+                "error": "Department is in use. Reassign/remove linked records first.",
+                "teacher_count": teacher_count,
+                "student_count": student_count,
+                "subject_count": subject_count,
+            },
+            status=409,
+        )
+
+    department.delete()
+    return JsonResponse(
+        {"message": {"department_id": department_id, "removed": True}},
+        status=200,
+    )
+
+
+@csrf_exempt
+@require_POST
+def institution_update_subject_assignment(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    subject_id = data.get("subject_id")
+    teacher_id = data.get("teacher_id")
+    if not subject_id or not teacher_id:
+        return JsonResponse({"error": "subject_id and teacher_id are required"}, status=400)
+
+    institution = _get_institution_for_user(request.user)
+    if not institution:
+        return JsonResponse({"error": "Institution profile not found"}, status=404)
+
+    subject = Subject.objects.filter(id=subject_id, institution=institution).first()
+    if not subject:
+        return JsonResponse({"error": "Subject not found"}, status=404)
+
+    teacher = institution.teachers.filter(id=teacher_id).first()
+    if not teacher:
+        return JsonResponse({"error": "Teacher not found in your institution"}, status=404)
+
+    subject.teacher = teacher
+    subject.save(update_fields=["teacher"])
+
+    return JsonResponse(
+        {
+            "message": {
+                "subject_id": subject.id,
+                "teacher_id": subject.teacher_id,
+            }
+        },
+        status=200,
+    )
+
+
+@csrf_exempt
+@require_POST
+def institution_remove_subject(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    subject_id = data.get("subject_id")
+    if not subject_id:
+        return JsonResponse({"error": "subject_id is required"}, status=400)
+
+    institution = _get_institution_for_user(request.user)
+    if not institution:
+        return JsonResponse({"error": "Institution profile not found"}, status=404)
+
+    subject = Subject.objects.filter(id=subject_id, institution=institution).first()
+    if not subject:
+        return JsonResponse({"error": "Subject not found"}, status=404)
+
+    subject.delete()
+    return JsonResponse(
+        {"message": {"subject_id": subject_id, "removed": True}},
+        status=200,
     )
 
 
@@ -634,6 +973,116 @@ def institution_subjects(request):
 
 @csrf_exempt
 @require_POST
+@has_permission()
+def teacher_upload_pdf(request):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
+
+    uploaded_file = request.FILES.get("pdf")
+    if not uploaded_file:
+        return JsonResponse({"error": "pdf file is required in multipart form-data"}, status=400)
+
+    extension = os.path.splitext(uploaded_file.name)[1].lower()
+    if extension != ".pdf":
+        return JsonResponse({"error": "Only PDF files are allowed"}, status=400)
+
+    file_header = uploaded_file.read(5)
+    uploaded_file.seek(0)
+    if file_header != b"%PDF-":
+        return JsonResponse({"error": "Invalid PDF file"}, status=400)
+
+    upload = TeacherPDFUpload(
+        teacher=request.user,
+        original_filename=uploaded_file.name,
+    )
+    upload.file.save(uploaded_file.name, uploaded_file, save=False)
+    upload.save()
+
+    return JsonResponse(
+        {
+            "message": {
+                "id": upload.id,
+                "teacher_user_id": upload.teacher_id,
+                "original_filename": upload.original_filename,
+                "stored_filename": os.path.basename(upload.file.name),
+                "file_path": upload.file.name,
+                "file_url": request.build_absolute_uri(upload.file.url),
+            }
+        },
+        status=201,
+    )
+
+
+@csrf_exempt
+@require_POST
+@has_permission()
+def teacher_upload_answer_key(request):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
+
+    subject_id = request.POST.get("subject_id")
+    if not subject_id:
+        return JsonResponse({"error": "subject_id is required"}, status=400)
+
+    subject = (
+        Subject.objects.select_related("teacher", "teacher__user")
+        .filter(id=subject_id)
+        .first()
+    )
+    if not subject:
+        return JsonResponse({"error": "Subject not found"}, status=404)
+
+    if not subject.teacher or subject.teacher.user_id != request.user.id:
+        return JsonResponse({"error": "You can upload answer key only for your own subject"}, status=403)
+
+    if TeacherSubjectAnswerKey.objects.filter(subject=subject).exists():
+        return JsonResponse({"error": "Answer key already uploaded for this subject"}, status=409)
+
+    uploaded_file = request.FILES.get("pdf")
+    if not uploaded_file:
+        return JsonResponse({"error": "pdf file is required in multipart form-data"}, status=400)
+
+    extension = os.path.splitext(uploaded_file.name)[1].lower()
+    if extension != ".pdf":
+        return JsonResponse({"error": "Only PDF files are allowed"}, status=400)
+
+    file_header = uploaded_file.read(5)
+    uploaded_file.seek(0)
+    if file_header != b"%PDF-":
+        return JsonResponse({"error": "Invalid PDF file"}, status=400)
+
+    answer_key = TeacherSubjectAnswerKey(
+        teacher=request.user,
+        subject=subject,
+        original_filename=uploaded_file.name,
+    )
+    answer_key.file.save(uploaded_file.name, uploaded_file, save=False)
+
+    try:
+        answer_key.save()
+    except IntegrityError:
+        return JsonResponse({"error": "Answer key already uploaded for this subject"}, status=409)
+
+    return JsonResponse(
+        {
+            "message": {
+                "id": answer_key.id,
+                "teacher_user_id": answer_key.teacher_id,
+                "subject_id": answer_key.subject_id,
+                "original_filename": answer_key.original_filename,
+                "stored_filename": os.path.basename(answer_key.file.name),
+                "file_path": answer_key.file.name,
+                "file_url": request.build_absolute_uri(answer_key.file.url),
+            }
+        },
+        status=201,
+    )
+
+
+@csrf_exempt
+@require_POST
 def teacher_assign_student(request):
     auth_error = _require_role(request, "teacher")
     if auth_error:
@@ -666,6 +1115,90 @@ def teacher_assign_student(request):
             }
         },
         status=201 if created else 200,
+    )
+
+
+@csrf_exempt
+@require_GET
+def teacher_students(request):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
+
+    teacher = Teacher.objects.filter(user=request.user).first()
+    if not teacher:
+        return JsonResponse({"error": "Teacher profile not found"}, status=404)
+
+    q = str(request.GET.get("q", "")).strip().lower()
+    subjects_qs = (
+        Subject.objects.filter(teacher=teacher)
+        .select_related("true_subject", "department", "institution")
+        .prefetch_related("students__user", "students__department")
+        .order_by("id")
+    )
+
+    subjects_payload = []
+    unique_student_ids = set()
+    for subject in subjects_qs:
+        students_payload = []
+        for student in subject.students.all():
+            if q:
+                haystack = " ".join(
+                    [
+                        (student.user.username or ""),
+                        (student.user.email or ""),
+                        (student.user.first_name or ""),
+                        (student.user.last_name or ""),
+                        (student.department.name if student.department else ""),
+                        (subject.true_subject.name if subject.true_subject else ""),
+                        (subject.true_subject.code if subject.true_subject else ""),
+                    ]
+                ).lower()
+                if q not in haystack:
+                    continue
+
+            students_payload.append(
+                {
+                    "id": student.id,
+                    "user_id": student.user_id,
+                    "username": student.user.username,
+                    "email": student.user.email,
+                    "first_name": student.user.first_name,
+                    "last_name": student.user.last_name,
+                    "department_id": student.department_id,
+                    "department_name": student.department.name if student.department else None,
+                    "role": "student",
+                }
+            )
+            unique_student_ids.add(student.id)
+
+        if q and not students_payload:
+            continue
+
+        subjects_payload.append(
+            {
+                "subject_id": subject.id,
+                "true_subject_id": subject.true_subject_id,
+                "subject_name": subject.true_subject.name if subject.true_subject else None,
+                "subject_code": subject.true_subject.code if subject.true_subject else None,
+                "semester": subject.semester,
+                "department_id": subject.department_id,
+                "department_name": subject.department.name if subject.department else None,
+                "institution_id": subject.institution_id,
+                "students": students_payload,
+                "student_count": len(students_payload),
+            }
+        )
+
+    return JsonResponse(
+        {
+            "message": {
+                "subjects": subjects_payload,
+                "subject_count": len(subjects_payload),
+                "student_count": len(unique_student_ids),
+            }
+        },
+        status=200,
     )
 
 

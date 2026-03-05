@@ -2,10 +2,28 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import F, Q
+import uuid
 
 class Department(models.Model):
     name = models.CharField(max_length=200)
-   
+    institution = models.ForeignKey(
+        "Institution",
+        on_delete=models.CASCADE,
+        related_name="departments",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "name"],
+                name="core_unique_department_per_institution",
+            )
+        ]
+
+    def __str__(self):
+        return self.name
 
 class Teacher(models.Model):
 
@@ -20,6 +38,11 @@ class Teacher(models.Model):
         related_name="teacher_department"
     )
     created_at = models.DateField(auto_now_add=True)
+
+    def __str__(self):
+        username = self.user.username if self.user_id and self.user else f"user_id={self.user_id}"
+        department_name = self.department.name if self.department_id and self.department else f"department_id={self.department_id}"
+        return f"{username} ({department_name})"
 
 
 class TrueSubject(models.Model):
@@ -77,6 +100,11 @@ class Subject(models.Model):
             )
         ]
 
+    def __str__(self):
+        subject_name = self.true_subject.name if self.true_subject_id and self.true_subject else f"true_subject_id={self.true_subject_id}"
+        department_name = self.department.name if self.department_id and self.department else f"department_id={self.department_id}"
+        return f"{subject_name} - Sem {self.semester} ({department_name})"
+
 
  
 class Student(models.Model):
@@ -97,6 +125,11 @@ class Student(models.Model):
     )
     created_at = models.DateField(auto_now_add=True)
 
+    def __str__(self):
+        username = self.user.username if self.user_id and self.user else f"user_id={self.user_id}"
+        department_name = self.department.name if self.department_id and self.department else f"department_id={self.department_id}"
+        return f"{username} ({department_name})"
+
 
 class Institution(models.Model):
     name = models.CharField(max_length=200)
@@ -113,6 +146,9 @@ class Institution(models.Model):
         related_name="students_in_instituation"
     )
     created_at = models.DateField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
 
 
 class StudentUnderTeacher(models.Model):
@@ -232,3 +268,62 @@ class StudentMark(models.Model):
 
     def __str__(self):
         return f"student={self.student_id} subject={self.subject_id} marks={self.acquired_mark}/{self.total_mark}"
+
+
+def _teacher_pdf_upload_path(_instance, _filename):
+    return f"uploads/{uuid.uuid4().hex}.pdf"
+
+
+class TeacherPDFUpload(models.Model):
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="teacher_pdf_uploads",
+    )
+    file = models.FileField(upload_to=_teacher_pdf_upload_path)
+    original_filename = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        if self.teacher_id and getattr(self.teacher, "role", None) != "teacher":
+            raise ValidationError({"teacher": "Selected user is not a teacher."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+def _teacher_answer_key_upload_path(_instance, _filename):
+    return f"uploads/answer-keys/{uuid.uuid4().hex}.pdf"
+
+
+class TeacherSubjectAnswerKey(models.Model):
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="teacher_answer_keys",
+    )
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE,
+        related_name="answer_keys",
+    )
+    file = models.FileField(upload_to=_teacher_answer_key_upload_path)
+    original_filename = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["subject"],
+                name="core_unique_answer_key_per_subject",
+            ),
+        ]
+
+    def clean(self):
+        if self.teacher_id and getattr(self.teacher, "role", None) != "teacher":
+            raise ValidationError({"teacher": "Selected user is not a teacher."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)

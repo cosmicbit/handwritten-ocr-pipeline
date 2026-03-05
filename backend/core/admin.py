@@ -6,6 +6,8 @@ from .models import (
     StudentUnderTeacher,
     Subject,
     Teacher,
+    TeacherPDFUpload,
+    TeacherSubjectAnswerKey,
     TeacherInstitution,
     Institution,
     TrueSubject,
@@ -35,8 +37,9 @@ class TeacherInstitutionAdmin(admin.ModelAdmin):
 
 @admin.register(Department)
 class DepartmentAdmin(admin.ModelAdmin):
-    list_display = ("id", "name")
-    search_fields = ("name",)
+    list_display = ("id", "name", "institution")
+    search_fields = ("name", "institution__name")
+    list_filter = ("institution",)
 
 
 @admin.register(Teacher)
@@ -71,6 +74,20 @@ class StudentMarkAdmin(admin.ModelAdmin):
     list_display = ("id", "student", "subject", "acquired_mark", "total_mark", "created_at")
     search_fields = ("student__user__username", "subject__true_subject__name", "subject__true_subject__code")
     list_filter = ("subject", "created_at")
+
+
+@admin.register(TeacherPDFUpload)
+class TeacherPDFUploadAdmin(admin.ModelAdmin):
+    list_display = ("id", "teacher", "original_filename", "file", "created_at")
+    search_fields = ("teacher__username", "original_filename")
+    list_filter = ("created_at",)
+
+
+@admin.register(TeacherSubjectAnswerKey)
+class TeacherSubjectAnswerKeyAdmin(admin.ModelAdmin):
+    list_display = ("id", "teacher", "subject", "original_filename", "file", "created_at")
+    search_fields = ("teacher__username", "subject__true_subject__name", "original_filename")
+    list_filter = ("created_at",)
 
 
 admin.site.register(Institution)

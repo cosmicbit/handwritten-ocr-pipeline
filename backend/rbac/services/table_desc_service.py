@@ -171,6 +171,7 @@ class TableDescriptionService:
     
     def get_all_permissions(self):
         permissions = Permission.objects.all()
+        print("All permission is available ",len(permissions))
         return list(permissions.values("id", "name", "codename"))
 
     def update_group_permissions(self, group_id, permission_ids):
