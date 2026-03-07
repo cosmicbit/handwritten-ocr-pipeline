@@ -1,4 +1,5 @@
 import json
+import logging
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -11,6 +12,7 @@ from rbac.permissions import has_permission
 from .services.core_service import CoreService, CoreServiceError
 
 core_service = CoreService()
+logger = logging.getLogger("engine.realtime")
 
 
 def _parse_json(request):
@@ -470,10 +472,17 @@ def teacher_upload_pdf(request):
     if auth_error:
         return auth_error
 
+    subject_id = request.POST.get("subject_id")
+    student_id = request.POST.get("student_id")
+    if not subject_id or not student_id:
+        return JsonResponse({"error": "subject_id and student_id are required"}, status=400)
+
     uploaded_file = request.FILES.get("pdf")
     return _service_response(
         core_service.teacher_upload_pdf,
         request.user,
+        subject_id,
+        student_id,
         uploaded_file,
         request.build_absolute_uri,
     )
@@ -537,7 +546,20 @@ def student_marks(request):
     if auth_error:
         return auth_error
 
-    return _service_response(core_service.student_marks, request.user)
+    semester = request.GET.get("semester")
+    subject_id = request.GET.get("subject_id")
+    return _service_response(core_service.student_marks, request.user, semester, subject_id)
+
+
+@csrf_exempt
+@require_GET
+def student_mark_options(request):
+    auth_error = _require_role(request, "student")
+    if auth_error:
+        return auth_error
+
+    semester = request.GET.get("semester")
+    return _service_response(core_service.student_mark_options, request.user, semester)
 
 
 @csrf_exempt
@@ -548,17 +570,51 @@ def engine_trigger(request):
     if auth_error:
         return auth_error
 
-    data = {}
-    if request.body:
-        data = _parse_json(request)
-        if data is None:
-            return JsonResponse({"error": "Invalid JSON"}, status=400)
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    teacher_pdf_path = data.get("teacher_pdf_path")
-    student_pdf_path = data.get("student_pdf_path")
+    subject_id = data.get("subject_id")
+    student_id = data.get("student_id")
     marks = data.get("marks")
-    task = run_engine_task.delay(teacher_pdf_path, student_pdf_path, marks)
-    return JsonResponse({"message": "Engine started", "task_id": task.id}, status=202)
+
+    if not subject_id or not student_id:
+        return JsonResponse({"error": "subject_id and student_id are required"}, status=400)
+
+    try:
+        context, _status = core_service.trigger_engine_model(request.user, subject_id, student_id)
+    except CoreServiceError as exc:
+        return JsonResponse(exc.to_response_body(), status=exc.status)
+
+    task = run_engine_task.delay(
+        teacher_pdf_path=context["teacher_pdf_path"],
+        student_pdf_path=context["student_pdf_path"],
+        marks=marks,
+        subject_id=context["subject_id"],
+        student_id=context["student_id"],
+        teacher_answer_key_upload_id=context["teacher_answer_key_upload_id"],
+        student_pdf_upload_id=context["student_pdf_upload_id"],
+    )
+    logger.info(
+        "trigger_accepted task_id=%s user_id=%s subject_id=%s student_id=%s ws_path=%s",
+        task.id,
+        getattr(request.user, "id", None),
+        context["subject_id"],
+        context["student_id"],
+        f"/ws/engine/status/{task.id}/",
+    )
+    return JsonResponse(
+        {
+            "message": "Engine started",
+            "task_id": task.id,
+            "ws_path": f"/ws/engine/status/{task.id}/",
+            "subject_id": context["subject_id"],
+            "student_id": context["student_id"],
+            "teacher_answer_key_upload_id": context["teacher_answer_key_upload_id"],
+            "student_pdf_upload_id": context["student_pdf_upload_id"],
+        },
+        status=202,
+    )
    
 
 from celery.result import AsyncResult
@@ -566,9 +622,13 @@ from celery.result import AsyncResult
 @require_GET
 def engine_status(request, task_id):
     result = AsyncResult(task_id)
+    info = result.info if isinstance(result.info, dict) else {}
     return JsonResponse({
         "task_id": task_id,
         "state": result.state,
+        "stage": info.get("stage"),
+        "progress": info.get("progress"),
+        "message": info.get("message"),
         "result": result.result if result.successful() else None,
         "error": str(result.result) if result.failed() else None,
     })

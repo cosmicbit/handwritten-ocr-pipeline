@@ -2,7 +2,7 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.contrib.auth import get_user_model
 
-from ..models import GroupNotification, Notification, NotificationRead, NotificationType
+from ..models import GroupNotification, Notification, NotificationRead, NotificationType, UserNotification
 
 
 class WebSocketService:
@@ -54,6 +54,9 @@ class WebSocketService:
             )
 
         if isinstance(instance, NotificationRead):
+            return [instance.user_id]
+
+        if isinstance(instance, UserNotification):
             return [instance.user_id]
 
         if isinstance(instance, NotificationType):

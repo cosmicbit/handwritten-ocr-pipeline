@@ -33,6 +33,7 @@ urlpatterns = [
     path("teacher/students/assign", views.teacher_assign_student, name="teacher_assign_student"),
     path("teacher/students", views.teacher_students, name="teacher_students"),
     path("student/marks", views.student_marks, name="student_marks"),
+    path("student/marks/options", views.student_mark_options, name="student_mark_options"),
     path("engine/trigger", views.engine_trigger, name="engine_trigger"),
     path("engine/status/<str:task_id>", views.engine_status, name="engine_status"),
 ]

@@ -193,6 +193,16 @@ LOGGING = {
             "level": "DEBUG",
             "propagate": False,
         },
+        "engine.realtime": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "notification.realtime": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
     },
 }
 

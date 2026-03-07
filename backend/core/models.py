@@ -191,6 +191,13 @@ class StudentUnderTeacher(models.Model):
             raise ValidationError({"student": "Selected user is not a student."})
 
     def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        # Background task updates extracted text fields only; relation validation
+        # is already enforced at upload time and can fail after business-rule changes.
+        if update_fields:
+            update_fields_set = set(update_fields)
+            if update_fields_set.issubset({"extracted_text", "extracted_text_file"}):
+                return super().save(*args, **kwargs)
         self.full_clean()
         return super().save(*args, **kwargs)
 
@@ -274,19 +281,56 @@ def _teacher_pdf_upload_path(_instance, _filename):
     return f"uploads/{uuid.uuid4().hex}.pdf"
 
 
+def _safe_teacher_text_upload_path(_instance, _filename):
+    return f"safe/teacher/{uuid.uuid4().hex}.txt"
+
+
+def _safe_student_text_upload_path(_instance, _filename):
+    return f"safe/student/{uuid.uuid4().hex}.txt"
+
+
 class TeacherPDFUpload(models.Model):
     teacher = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="teacher_pdf_uploads",
     )
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE,
+        related_name="student_pdf_uploads",
+        null=True,
+        blank=True,
+    )
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="uploaded_pdfs",
+        null=True,
+        blank=True,
+    )
     file = models.FileField(upload_to=_teacher_pdf_upload_path)
     original_filename = models.CharField(max_length=255)
+    extracted_text = models.TextField(blank=True, default="")
+    extracted_text_file = models.FileField(upload_to=_safe_student_text_upload_path, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def clean(self):
         if self.teacher_id and getattr(self.teacher, "role", None) != "teacher":
             raise ValidationError({"teacher": "Selected user is not a teacher."})
+        if self.subject_id and self.teacher_id:
+            subject_teacher_user_id = Subject.objects.filter(id=self.subject_id).values_list("teacher__user_id", flat=True).first()
+            if subject_teacher_user_id and subject_teacher_user_id != self.teacher_id:
+                raise ValidationError({"subject": "Subject does not belong to this teacher."})
+        if self.subject_id and self.student_id:
+            pair = Subject.objects.filter(id=self.subject_id).values_list("department_id", "teacher__user_id").first()
+            if pair:
+                subject_department_id, subject_teacher_user_id = pair
+                student_department_id = Student.objects.filter(id=self.student_id).values_list("department_id", flat=True).first()
+                if subject_teacher_user_id and subject_teacher_user_id != self.teacher_id:
+                    raise ValidationError({"subject": "Subject does not belong to this teacher."})
+                if student_department_id != subject_department_id:
+                    raise ValidationError({"student": "Student and subject must belong to the same department."})
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -310,6 +354,8 @@ class TeacherSubjectAnswerKey(models.Model):
     )
     file = models.FileField(upload_to=_teacher_answer_key_upload_path)
     original_filename = models.CharField(max_length=255)
+    extracted_text = models.TextField(blank=True, default="")
+    extracted_text_file = models.FileField(upload_to=_safe_teacher_text_upload_path, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
