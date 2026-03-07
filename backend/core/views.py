@@ -1,20 +1,22 @@
 import json
 
-from django.db.models import Q
-from django.db import IntegrityError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
+from core.tasks import run_engine_task
 
-from auth2.models import Role, User
 
-from .models import Department, Institution, Student, StudentMark, StudentUnderTeacher, Subject, Teacher, TrueSubject
+from rbac.permissions import has_permission
+
+from .services.core_service import CoreService, CoreServiceError
+
+core_service = CoreService()
 
 
 def _parse_json(request):
     try:
         return json.loads(request.body.decode("utf-8"))
-    except json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return None
 
 
@@ -27,8 +29,12 @@ def _require_role(request, role_name):
     return None
 
 
-def _get_institution_for_user(user):
-    return Institution.objects.filter(user=user).first()
+def _service_response(service_method, *args, **kwargs):
+    try:
+        message, status = service_method(*args, **kwargs)
+        return JsonResponse({"message": message}, status=status)
+    except CoreServiceError as exc:
+        return JsonResponse(exc.to_response_body(), status=exc.status)
 
 
 @require_GET
@@ -44,22 +50,8 @@ def institution_search_users(request):
         return auth_error
 
     role = str(request.GET.get("role", "")).lower().strip()
-    if role not in {Role.TEACHER, Role.STUDENT}:
-        return JsonResponse({"error": "role must be either 'teacher' or 'student'"}, status=400)
-
     q = request.GET.get("q", "").strip()
-
-    queryset = User.objects.filter(role=role)
-    if q:
-        queryset = queryset.filter(
-            Q(username__icontains=q)
-            | Q(email__icontains=q)
-            | Q(first_name__icontains=q)
-            | Q(last_name__icontains=q)
-        )
-
-    users = list(queryset.values("id", "username", "email", "first_name", "last_name", "role")[:50])
-    return JsonResponse({"message": users}, status=200)
+    return _service_response(core_service.institution_search_users, role, q)
 
 
 @csrf_exempt
@@ -78,35 +70,11 @@ def institution_add_teacher(request):
     if not teacher_user_id or not department_id:
         return JsonResponse({"error": "teacher_user_id and department_id are required"}, status=400)
 
-    institution = _get_institution_for_user(request.user)
-    if not institution:
-        return JsonResponse({"error": "Institution profile not found"}, status=404)
-
-    teacher_user = User.objects.filter(id=teacher_user_id, role=Role.TEACHER).first()
-    if not teacher_user:
-        return JsonResponse({"error": "Teacher user not found"}, status=404)
-
-    department = Department.objects.filter(id=department_id).first()
-    if not department:
-        return JsonResponse({"error": "Department not found"}, status=404)
-
-    teacher, _ = Teacher.objects.get_or_create(user=teacher_user, defaults={"department": department})
-    if teacher.department_id != department.id:
-        teacher.department = department
-        teacher.save(update_fields=["department"])
-
-    institution.teachers.add(teacher)
-
-    return JsonResponse(
-        {
-            "message": {
-                "institution_id": institution.id,
-                "teacher_id": teacher.id,
-                "teacher_user_id": teacher_user.id,
-                "department_id": department.id,
-            }
-        },
-        status=200,
+    return _service_response(
+        core_service.institution_add_teacher,
+        request.user,
+        teacher_user_id,
+        department_id,
     )
 
 
@@ -126,35 +94,11 @@ def institution_add_student(request):
     if not student_user_id or not department_id:
         return JsonResponse({"error": "student_user_id and department_id are required"}, status=400)
 
-    institution = _get_institution_for_user(request.user)
-    if not institution:
-        return JsonResponse({"error": "Institution profile not found"}, status=404)
-
-    student_user = User.objects.filter(id=student_user_id, role=Role.STUDENT).first()
-    if not student_user:
-        return JsonResponse({"error": "Student user not found"}, status=404)
-
-    department = Department.objects.filter(id=department_id).first()
-    if not department:
-        return JsonResponse({"error": "Department not found"}, status=404)
-
-    student, _ = Student.objects.get_or_create(user=student_user, defaults={"department": department})
-    if student.department_id != department.id:
-        student.department = department
-        student.save(update_fields=["department"])
-
-    institution.students.add(student)
-
-    return JsonResponse(
-        {
-            "message": {
-                "institution_id": institution.id,
-                "student_id": student.id,
-                "student_user_id": student_user.id,
-                "department_id": department.id,
-            }
-        },
-        status=200,
+    return _service_response(
+        core_service.institution_add_student,
+        request.user,
+        student_user_id,
+        department_id,
     )
 
 
@@ -180,42 +124,13 @@ def institution_create_teacher(request):
             status=400,
         )
 
-    institution = _get_institution_for_user(request.user)
-    if not institution:
-        return JsonResponse({"error": "Institution profile not found"}, status=404)
-
-    department = Department.objects.filter(id=department_id).first()
-    if not department:
-        return JsonResponse({"error": "Department not found"}, status=404)
-
-    try:
-        teacher_user = User.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-            role=Role.TEACHER,
-        )
-    except IntegrityError:
-        return JsonResponse({"error": "username or email already exists"}, status=409)
-
-    teacher = Teacher.objects.get(user=teacher_user)
-    if teacher.department_id != department.id:
-        teacher.department = department
-        teacher.save(update_fields=["department"])
-
-    institution.teachers.add(teacher)
-
-    return JsonResponse(
-        {
-            "message": {
-                "user_id": teacher_user.id,
-                "teacher_id": teacher.id,
-                "institution_id": institution.id,
-                "department_id": department.id,
-                "role": teacher_user.role,
-            }
-        },
-        status=201,
+    return _service_response(
+        core_service.institution_create_teacher,
+        request.user,
+        username,
+        email,
+        password,
+        department_id,
     )
 
 
@@ -241,42 +156,13 @@ def institution_create_student(request):
             status=400,
         )
 
-    institution = _get_institution_for_user(request.user)
-    if not institution:
-        return JsonResponse({"error": "Institution profile not found"}, status=404)
-
-    department = Department.objects.filter(id=department_id).first()
-    if not department:
-        return JsonResponse({"error": "Department not found"}, status=404)
-
-    try:
-        student_user = User.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-            role=Role.STUDENT,
-        )
-    except IntegrityError:
-        return JsonResponse({"error": "username or email already exists"}, status=409)
-
-    student = Student.objects.get(user=student_user)
-    if student.department_id != department.id:
-        student.department = department
-        student.save(update_fields=["department"])
-
-    institution.students.add(student)
-
-    return JsonResponse(
-        {
-            "message": {
-                "user_id": student_user.id,
-                "student_id": student.id,
-                "institution_id": institution.id,
-                "department_id": department.id,
-                "role": student_user.role,
-            }
-        },
-        status=201,
+    return _service_response(
+        core_service.institution_create_student,
+        request.user,
+        username,
+        email,
+        password,
+        department_id,
     )
 
 
@@ -287,8 +173,7 @@ def institution_departments(request):
     if auth_error:
         return auth_error
 
-    departments = list(Department.objects.all().values("id", "name").order_by("name"))
-    return JsonResponse({"message": departments}, status=200)
+    return _service_response(core_service.institution_departments, request.user)
 
 
 @csrf_exempt
@@ -297,10 +182,6 @@ def institution_members(request):
     auth_error = _require_role(request, "institution")
     if auth_error:
         return auth_error
-
-    institution = _get_institution_for_user(request.user)
-    if not institution:
-        return JsonResponse({"error": "Institution profile not found"}, status=404)
 
     role = str(request.GET.get("role", "")).strip().lower()
     q = str(request.GET.get("q", "")).strip()
@@ -321,111 +202,14 @@ def institution_members(request):
     if page_size <= 0 or page <= 0 or offset < 0:
         return JsonResponse({"error": "page and page_size must be > 0, offset must be >= 0"}, status=400)
 
-    if role and role not in {"teacher", "student"}:
-        return JsonResponse({"error": "role must be either 'teacher' or 'student'"}, status=400)
-
-    teachers_qs = institution.teachers.select_related("user", "department").all().order_by("id")
-    students_qs = institution.students.select_related("user", "department").all().order_by("id")
-
-    if q:
-        teachers_qs = teachers_qs.filter(
-            Q(user__username__icontains=q)
-            | Q(user__email__icontains=q)
-            | Q(user__first_name__icontains=q)
-            | Q(user__last_name__icontains=q)
-            | Q(department__name__icontains=q)
-        )
-        students_qs = students_qs.filter(
-            Q(user__username__icontains=q)
-            | Q(user__email__icontains=q)
-            | Q(user__first_name__icontains=q)
-            | Q(user__last_name__icontains=q)
-            | Q(department__name__icontains=q)
-        )
-
-    teacher_total = teachers_qs.count()
-    student_total = students_qs.count()
-
-    teachers_page = teachers_qs[offset : offset + page_size]
-    students_page = students_qs[offset : offset + page_size]
-
-    teachers = [
-        {
-            "id": teacher.id,
-            "user_id": teacher.user_id,
-            "username": teacher.user.username,
-            "email": teacher.user.email,
-            "first_name": teacher.user.first_name,
-            "last_name": teacher.user.last_name,
-            "department_id": teacher.department_id,
-            "department_name": teacher.department.name if teacher.department else None,
-            "role": "teacher",
-        }
-        for teacher in teachers_page
-    ]
-    students = [
-        {
-            "id": student.id,
-            "user_id": student.user_id,
-            "username": student.user.username,
-            "email": student.user.email,
-            "first_name": student.user.first_name,
-            "last_name": student.user.last_name,
-            "department_id": student.department_id,
-            "department_name": student.department.name if student.department else None,
-            "role": "student",
-        }
-        for student in students_page
-    ]
-
-    if role == "teacher":
-        return JsonResponse(
-            {
-                "message": {
-                    "teachers": teachers,
-                    "count": len(teachers),
-                    "total": teacher_total,
-                    "offset": offset,
-                    "page": page,
-                    "page_size": page_size,
-                    "has_more": offset + len(teachers) < teacher_total,
-                }
-            },
-            status=200,
-        )
-    if role == "student":
-        return JsonResponse(
-            {
-                "message": {
-                    "students": students,
-                    "count": len(students),
-                    "total": student_total,
-                    "offset": offset,
-                    "page": page,
-                    "page_size": page_size,
-                    "has_more": offset + len(students) < student_total,
-                }
-            },
-            status=200,
-        )
-
-    return JsonResponse(
-        {
-            "message": {
-                "teachers": teachers,
-                "students": students,
-                "teacher_count": len(teachers),
-                "student_count": len(students),
-                "teacher_total": teacher_total,
-                "student_total": student_total,
-                "offset": offset,
-                "page": page,
-                "page_size": page_size,
-                "teacher_has_more": offset + len(teachers) < teacher_total,
-                "student_has_more": offset + len(students) < student_total,
-            }
-        },
-        status=200,
+    return _service_response(
+        core_service.institution_members,
+        request.user,
+        role,
+        q,
+        page,
+        page_size,
+        offset,
     )
 
 
@@ -444,17 +228,7 @@ def institution_add_department(request):
     if not name:
         return JsonResponse({"error": "name is required"}, status=400)
 
-    department, created = Department.objects.get_or_create(name=name)
-    return JsonResponse(
-        {
-            "message": {
-                "id": department.id,
-                "name": department.name,
-                "created": created,
-            }
-        },
-        status=201 if created else 200,
-    )
+    return _service_response(core_service.institution_add_department, request.user, name)
 
 
 @csrf_exempt
@@ -479,61 +253,167 @@ def institution_add_subject(request):
             status=400,
         )
 
-    institution = _get_institution_for_user(request.user)
-    if not institution:
-        return JsonResponse({"error": "Institution profile not found"}, status=404)
-
-    department = Department.objects.filter(id=department_id).first()
-    if not department:
-        return JsonResponse({"error": "Department not found"}, status=404)
-
-    teacher = Teacher.objects.filter(id=teacher_id).first()
-    if not teacher:
-        return JsonResponse({"error": "Teacher not found"}, status=404)
-    if not institution.teachers.filter(id=teacher.id).exists():
-        return JsonResponse({"error": "Teacher is not part of your institution"}, status=403)
-
-    true_subject = TrueSubject.objects.filter(id=true_subject_id).first()
-    if not true_subject:
-        return JsonResponse({"error": "TrueSubject not found"}, status=404)
-
-    if int(semester) not in {choice[0] for choice in Subject.Semester.choices}:
-        return JsonResponse({"error": "Invalid semester value"}, status=400)
-
-    subject, created = Subject.objects.get_or_create(
-        institution=institution,
-        true_subject=true_subject,
-        semester=int(semester),
-        department=department,
-        defaults={
-            "teacher": teacher,
-        },
+    return _service_response(
+        core_service.institution_add_subject,
+        request.user,
+        true_subject_id,
+        semester,
+        department_id,
+        teacher_id,
     )
 
-    if not created:
-        return JsonResponse(
-            {
-                "error": "Subject already set for this institution/department/semester",
-                "assigned_teacher_id": subject.teacher_id,
-            },
-            status=409,
-        )
 
-    return JsonResponse(
-        {
-            "message": {
-                "id": subject.id,
-                "true_subject_id": subject.true_subject_id,
-                "name": subject.true_subject.name,
-                "code": subject.true_subject.code,
-                "institution_id": subject.institution_id,
-                "semester": subject.semester,
-                "department_id": subject.department_id,
-                "teacher_id": subject.teacher_id,
-            }
-        },
-        status=201,
+@csrf_exempt
+@require_POST
+def institution_update_teacher(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    teacher_id = data.get("teacher_id")
+    department_id = data.get("department_id")
+    if not teacher_id or not department_id:
+        return JsonResponse({"error": "teacher_id and department_id are required"}, status=400)
+
+    return _service_response(core_service.institution_update_teacher, request.user, teacher_id, department_id)
+
+
+@csrf_exempt
+@require_POST
+def institution_remove_teacher(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    teacher_id = data.get("teacher_id")
+    if not teacher_id:
+        return JsonResponse({"error": "teacher_id is required"}, status=400)
+
+    return _service_response(core_service.institution_remove_teacher, request.user, teacher_id)
+
+
+@csrf_exempt
+@require_POST
+def institution_update_student(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    student_id = data.get("student_id")
+    department_id = data.get("department_id")
+    if not student_id or not department_id:
+        return JsonResponse({"error": "student_id and department_id are required"}, status=400)
+
+    return _service_response(core_service.institution_update_student, request.user, student_id, department_id)
+
+
+@csrf_exempt
+@require_POST
+def institution_remove_student(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    student_id = data.get("student_id")
+    if not student_id:
+        return JsonResponse({"error": "student_id is required"}, status=400)
+
+    return _service_response(core_service.institution_remove_student, request.user, student_id)
+
+
+@csrf_exempt
+@require_POST
+def institution_update_department(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    department_id = data.get("department_id")
+    name = str(data.get("name", "")).strip()
+    if not department_id or not name:
+        return JsonResponse({"error": "department_id and name are required"}, status=400)
+
+    return _service_response(core_service.institution_update_department, request.user, department_id, name)
+
+
+@csrf_exempt
+@require_POST
+def institution_remove_department(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    department_id = data.get("department_id")
+    if not department_id:
+        return JsonResponse({"error": "department_id is required"}, status=400)
+
+    return _service_response(core_service.institution_remove_department, request.user, department_id)
+
+
+@csrf_exempt
+@require_POST
+def institution_update_subject_assignment(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    subject_id = data.get("subject_id")
+    teacher_id = data.get("teacher_id")
+    if not subject_id or not teacher_id:
+        return JsonResponse({"error": "subject_id and teacher_id are required"}, status=400)
+
+    return _service_response(
+        core_service.institution_update_subject_assignment,
+        request.user,
+        subject_id,
+        teacher_id,
     )
+
+
+@csrf_exempt
+@require_POST
+def institution_remove_subject(request):
+    auth_error = _require_role(request, "institution")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    subject_id = data.get("subject_id")
+    if not subject_id:
+        return JsonResponse({"error": "subject_id is required"}, status=400)
+
+    return _service_response(core_service.institution_remove_subject, request.user, subject_id)
 
 
 @csrf_exempt
@@ -544,12 +424,7 @@ def institution_true_subjects(request):
         return auth_error
 
     q = str(request.GET.get("q", "")).strip()
-    queryset = TrueSubject.objects.all().order_by("code")
-    if q:
-        queryset = queryset.filter(Q(name__icontains=q) | Q(code__icontains=q))
-
-    payload = list(queryset.values("id", "name", "code"))
-    return JsonResponse({"message": payload}, status=200)
+    return _service_response(core_service.institution_true_subjects, q)
 
 
 @csrf_exempt
@@ -558,10 +433,6 @@ def institution_subjects(request):
     auth_error = _require_role(request, "institution")
     if auth_error:
         return auth_error
-
-    institution = _get_institution_for_user(request.user)
-    if not institution:
-        return JsonResponse({"error": "Institution profile not found"}, status=404)
 
     q = str(request.GET.get("q", "")).strip()
     page_size_raw = request.GET.get("page_size", 20)
@@ -581,54 +452,52 @@ def institution_subjects(request):
     if page_size <= 0 or page <= 0 or offset < 0:
         return JsonResponse({"error": "page and page_size must be > 0, offset must be >= 0"}, status=400)
 
-    queryset = (
-        Subject.objects.select_related("true_subject", "department", "teacher", "teacher__user")
-        .filter(institution=institution)
-        .order_by("id")
+    return _service_response(
+        core_service.institution_subjects,
+        request.user,
+        q,
+        page,
+        page_size,
+        offset,
     )
 
-    if q:
-        queryset = queryset.filter(
-            Q(true_subject__name__icontains=q)
-            | Q(true_subject__code__icontains=q)
-            | Q(department__name__icontains=q)
-            | Q(teacher__user__username__icontains=q)
-            | Q(teacher__user__email__icontains=q)
-        )
 
-    total = queryset.count()
-    page_items = queryset[offset : offset + page_size]
+@csrf_exempt
+@require_POST
+@has_permission()
+def teacher_upload_pdf(request):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
 
-    subjects = [
-        {
-            "id": subject.id,
-            "true_subject_id": subject.true_subject_id,
-            "name": subject.true_subject.name,
-            "code": subject.true_subject.code,
-            "semester": subject.semester,
-            "institution_id": subject.institution_id,
-            "department_id": subject.department_id,
-            "department_name": subject.department.name if subject.department else None,
-            "teacher_id": subject.teacher_id,
-            "teacher_user_id": subject.teacher.user_id if subject.teacher else None,
-            "teacher_username": subject.teacher.user.username if subject.teacher and subject.teacher.user else None,
-        }
-        for subject in page_items
-    ]
+    uploaded_file = request.FILES.get("pdf")
+    return _service_response(
+        core_service.teacher_upload_pdf,
+        request.user,
+        uploaded_file,
+        request.build_absolute_uri,
+    )
 
-    return JsonResponse(
-        {
-            "message": {
-                "subjects": subjects,
-                "count": len(subjects),
-                "total": total,
-                "offset": offset,
-                "page": page,
-                "page_size": page_size,
-                "has_more": offset + len(subjects) < total,
-            }
-        },
-        status=200,
+
+@csrf_exempt
+@require_POST
+@has_permission()
+def teacher_upload_answer_key(request):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
+
+    subject_id = request.POST.get("subject_id")
+    if not subject_id:
+        return JsonResponse({"error": "subject_id is required"}, status=400)
+
+    uploaded_file = request.FILES.get("pdf")
+    return _service_response(
+        core_service.teacher_upload_answer_key,
+        request.user,
+        subject_id,
+        uploaded_file,
+        request.build_absolute_uri,
     )
 
 
@@ -647,26 +516,18 @@ def teacher_assign_student(request):
     if not student_user_id:
         return JsonResponse({"error": "student_user_id is required"}, status=400)
 
-    student_user = User.objects.filter(id=student_user_id, role=Role.STUDENT).first()
-    if not student_user:
-        return JsonResponse({"error": "Student user not found"}, status=404)
+    return _service_response(core_service.teacher_assign_student, request.user, student_user_id)
 
-    link, created = StudentUnderTeacher.objects.get_or_create(
-        teacher=request.user,
-        student=student_user,
-    )
 
-    return JsonResponse(
-        {
-            "message": {
-                "id": link.id,
-                "teacher_user_id": link.teacher_id,
-                "student_user_id": link.student_id,
-                "created": created,
-            }
-        },
-        status=201 if created else 200,
-    )
+@csrf_exempt
+@require_GET
+def teacher_students(request):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
+
+    q = str(request.GET.get("q", "")).strip().lower()
+    return _service_response(core_service.teacher_students, request.user, q)
 
 
 @csrf_exempt
@@ -676,22 +537,38 @@ def student_marks(request):
     if auth_error:
         return auth_error
 
-    student = Student.objects.filter(user=request.user).first()
-    if not student:
-        return JsonResponse({"error": "Student profile not found"}, status=404)
+    return _service_response(core_service.student_marks, request.user)
 
-    marks = (
-        StudentMark.objects.filter(student=student)
-        .select_related("subject", "subject__true_subject")
-        .values(
-            "id",
-            "subject_id",
-            "subject__true_subject__name",
-            "subject__true_subject__code",
-            "total_mark",
-            "acquired_mark",
-            "created_at",
-        )
-    )
 
-    return JsonResponse({"message": list(marks)}, status=200)
+@csrf_exempt
+@require_POST
+@has_permission()
+def engine_trigger(request):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
+
+    data = {}
+    if request.body:
+        data = _parse_json(request)
+        if data is None:
+            return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    teacher_pdf_path = data.get("teacher_pdf_path")
+    student_pdf_path = data.get("student_pdf_path")
+    marks = data.get("marks")
+    task = run_engine_task.delay(teacher_pdf_path, student_pdf_path, marks)
+    return JsonResponse({"message": "Engine started", "task_id": task.id}, status=202)
+   
+
+from celery.result import AsyncResult
+
+@require_GET
+def engine_status(request, task_id):
+    result = AsyncResult(task_id)
+    return JsonResponse({
+        "task_id": task_id,
+        "state": result.state,
+        "result": result.result if result.successful() else None,
+        "error": str(result.result) if result.failed() else None,
+    })
