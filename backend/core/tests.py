@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
+from auth2.jwt_utils import create_jwt_token
 from .models import Department, Institution, Subject, Teacher, TeacherPDFUpload, TeacherSubjectAnswerKey, TrueSubject
 
 User = get_user_model()
@@ -29,38 +30,39 @@ class TeacherUploadPDFTests(TestCase):
         )
         self.url = "/core/teacher/pdfs/upload"
 
+    def _auth_headers(self, user):
+        token = create_jwt_token(user)
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
     def test_non_teacher_cannot_upload_pdf(self):
         with override_settings(MEDIA_ROOT=self.media_root):
-            self.client.force_login(self.student)
             pdf_file = SimpleUploadedFile(
                 "sample.pdf",
                 b"%PDF-1.4\n%EOF",
                 content_type="application/pdf",
             )
-            response = self.client.post(self.url, {"pdf": pdf_file})
+            response = self.client.post(self.url, {"pdf": pdf_file}, **self._auth_headers(self.student))
             self.assertEqual(response.status_code, 403)
 
     def test_rejects_non_pdf_file(self):
         with override_settings(MEDIA_ROOT=self.media_root):
-            self.client.force_login(self.teacher)
             text_file = SimpleUploadedFile(
                 "sample.txt",
                 b"hello world",
                 content_type="text/plain",
             )
-            response = self.client.post(self.url, {"pdf": text_file})
+            response = self.client.post(self.url, {"pdf": text_file}, **self._auth_headers(self.teacher))
             self.assertEqual(response.status_code, 400)
             self.assertEqual(TeacherPDFUpload.objects.count(), 0)
 
     def test_teacher_can_upload_pdf_with_unique_name(self):
         with override_settings(MEDIA_ROOT=self.media_root):
-            self.client.force_login(self.teacher)
             pdf_file = SimpleUploadedFile(
                 "question-paper.pdf",
                 b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF",
                 content_type="application/pdf",
             )
-            response = self.client.post(self.url, {"pdf": pdf_file})
+            response = self.client.post(self.url, {"pdf": pdf_file}, **self._auth_headers(self.teacher))
             self.assertEqual(response.status_code, 201)
 
             upload = TeacherPDFUpload.objects.get()
@@ -122,15 +124,22 @@ class TeacherAnswerKeyUploadTests(TestCase):
         )
         self.url = "/core/teacher/subjects/answer-key/upload"
 
+    def _auth_headers(self, user):
+        token = create_jwt_token(user)
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
     def test_teacher_can_upload_answer_key_once_for_subject(self):
         with override_settings(MEDIA_ROOT=self.media_root):
-            self.client.force_login(self.teacher_user)
             pdf_file = SimpleUploadedFile(
                 "answer-key.pdf",
                 b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF",
                 content_type="application/pdf",
             )
-            response = self.client.post(self.url, {"subject_id": str(self.subject.id), "pdf": pdf_file})
+            response = self.client.post(
+                self.url,
+                {"subject_id": str(self.subject.id), "pdf": pdf_file},
+                **self._auth_headers(self.teacher_user),
+            )
             self.assertEqual(response.status_code, 201)
             self.assertEqual(TeacherSubjectAnswerKey.objects.count(), 1)
 
@@ -142,13 +151,13 @@ class TeacherAnswerKeyUploadTests(TestCase):
             second_response = self.client.post(
                 self.url,
                 {"subject_id": str(self.subject.id), "pdf": second_file},
+                **self._auth_headers(self.teacher_user),
             )
             self.assertEqual(second_response.status_code, 409)
             self.assertEqual(TeacherSubjectAnswerKey.objects.count(), 1)
 
     def test_teacher_cannot_upload_answer_key_for_other_teacher_subject(self):
         with override_settings(MEDIA_ROOT=self.media_root):
-            self.client.force_login(self.teacher_user)
             pdf_file = SimpleUploadedFile(
                 "other-answer-key.pdf",
                 b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF",
@@ -157,6 +166,7 @@ class TeacherAnswerKeyUploadTests(TestCase):
             response = self.client.post(
                 self.url,
                 {"subject_id": str(self.other_subject.id), "pdf": pdf_file},
+                **self._auth_headers(self.teacher_user),
             )
             self.assertEqual(response.status_code, 403)
             self.assertEqual(TeacherSubjectAnswerKey.objects.count(), 0)

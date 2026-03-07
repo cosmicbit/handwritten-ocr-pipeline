@@ -16,7 +16,7 @@ from core.models import (
     TeacherSubjectAnswerKey,
     TrueSubject,
 )
-from core.engine.main import DEFAULT_STUDENT_PDF, DEFAULT_TEACHER_PDF, run_pipeline
+#from core.engine.main import DEFAULT_STUDENT_PDF, DEFAULT_TEACHER_PDF, run_pipeline
 
 
 class CoreServiceError(Exception):
@@ -770,36 +770,39 @@ class CoreService:
         return list(marks), 200
 
     def trigger_engine_model(self, teacher_pdf_path=None, student_pdf_path=None, marks=None):
-        teacher_path = teacher_pdf_path or DEFAULT_TEACHER_PDF
-        student_path = student_pdf_path or DEFAULT_STUDENT_PDF
+    #    #teacher_path = teacher_pdf_path or DEFAULT_TEACHER_PDF
+    #     student_path = student_pdf_path or DEFAULT_STUDENT_PDF
 
-        if not os.path.isfile(teacher_path):
-            raise CoreServiceError("Teacher PDF file not found", 404, {"teacher_pdf_path": teacher_path})
-        if not os.path.isfile(student_path):
-            raise CoreServiceError("Student PDF file not found", 404, {"student_pdf_path": student_path})
+    #     if not os.path.isfile(teacher_path):
+    #         raise CoreServiceError("Teacher PDF file not found", 404, {"teacher_pdf_path": teacher_path})
+    #     if not os.path.isfile(student_path):
+    #         raise CoreServiceError("Student PDF file not found", 404, {"student_pdf_path": student_path})
 
-        if marks is not None:
-            if not isinstance(marks, list) or not marks:
-                raise CoreServiceError("marks must be a non-empty list", 400)
-            if not all(isinstance(mark, (int, float)) for mark in marks):
-                raise CoreServiceError("marks must contain only numbers", 400)
+    #     if marks is not None:
+    #         if not isinstance(marks, list) or not marks:
+    #             raise CoreServiceError("marks must be a non-empty list", 400)
+    #         if not all(isinstance(mark, (int, float)) for mark in marks):
+    #             raise CoreServiceError("marks must contain only numbers", 400)
 
-        try:
-            teacher_answers, every_student_answers, every_student_scores = run_pipeline(
-                teacher_pdf_path=teacher_path,
-                student_pdf_path=student_path,
-                marks=marks,
-            )
-        except Exception as exc:
-            raise CoreServiceError("Model execution failed", 500, {"details": str(exc)})
+    #     try:
+    #         teacher_answers, every_student_answers, every_student_scores = run_pipeline(
+    #             teacher_pdf_path=teacher_path,
+    #             student_pdf_path=student_path,
+    #             marks=marks,
+    #         )
+    #     except Exception as exc:
+    #         raise CoreServiceError("Model execution failed", 500, {"details": str(exc)})
 
-        student_answers = every_student_answers[0] if every_student_answers else []
-        student_scores = every_student_scores[0] if every_student_scores else []
+    #     student_answers = every_student_answers[0] if every_student_answers else []
+    #     student_scores = every_student_scores[0] if every_student_scores else []
+    #     return {
+    #         "teacher_pdf_path": teacher_path,
+    #         "student_pdf_path": student_path,
+    #         "teacher_answers_count": len(teacher_answers),
+    #         "student_answers_count": len(student_answers),
+    #         "scores": student_scores,
+    #         "total_score": sum(student_scores) if student_scores else 0,
+    #     }, 200
         return {
-            "teacher_pdf_path": teacher_path,
-            "student_pdf_path": student_path,
-            "teacher_answers_count": len(teacher_answers),
-            "student_answers_count": len(student_answers),
-            "scores": student_scores,
-            "total_score": sum(student_scores) if student_scores else 0,
-        }, 200
+            "teacher_pdf_path": None
+        }
