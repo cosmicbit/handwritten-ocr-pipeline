@@ -18,13 +18,19 @@ def has_permission():
                     {"error": "Authentication required"},
                     status=401
                 )
-            print(list(user.groups.all()))
             permissions = [permission for group in user.groups.all() for permission in group.permissions.all()]
-            print(permissions)
             if user.is_superuser:
                 return view_func(request, *args, **kwargs)
+
+            if not permissions:
+                return JsonResponse(
+                    {"error": "Permission denied"},
+                    status=403
+                )
+
             for permission in permissions:
-                if not user.has_perm(permission):
+                perm_code = f"{permission.content_type.app_label}.{permission.codename}"
+                if not user.has_perm(perm_code):
                     return JsonResponse(
                         {"error": "Permission denied"},
                         status=403
