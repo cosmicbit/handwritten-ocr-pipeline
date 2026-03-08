@@ -135,11 +135,18 @@ class CoreService:
         except (TypeError, ValueError):
             raise CoreServiceError("student_id must be an integer", 400)
 
-        # Accept either Student.id or auth User.id for teacher-facing endpoints.
+        student = (
+            Student.objects.select_related("user")
+            .filter(id=student_ref)
+            .first()
+        )
+
+        if student:
+            return student
+
         return (
             Student.objects.select_related("user")
-            .filter(Q(id=student_ref) | Q(user_id=student_ref))
-            .order_by("id")
+            .filter(user_id=student_ref)
             .first()
         )
 
@@ -712,6 +719,8 @@ class CoreService:
         student = self._resolve_student(student_id)
         if not student:
             raise CoreServiceError("Student not found", 404)
+
+        print(student.department_id, subject.department_id, student_id)
 
         if student.department_id != subject.department_id:
             raise CoreServiceError(

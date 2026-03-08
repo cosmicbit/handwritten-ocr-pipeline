@@ -474,6 +474,7 @@ def teacher_upload_pdf(request):
 
     subject_id = request.POST.get("subject_id")
     student_id = request.POST.get("student_id")
+    print(subject_id, student_id)
     if not subject_id or not student_id:
         return JsonResponse({"error": "subject_id and student_id are required"}, status=400)
 
