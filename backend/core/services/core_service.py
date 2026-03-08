@@ -1,4 +1,5 @@
 import os
+import logging
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -18,6 +19,7 @@ from core.models import (
 )
 #from core.engine.main import DEFAULT_STUDENT_PDF, DEFAULT_TEACHER_PDF, run_pipeline
 
+logger = logging.getLogger("notification.realtime")
 
 class CoreServiceError(Exception):
     def __init__(self, message, status, extra=None):
@@ -44,6 +46,101 @@ class CoreService:
                 institution=institution,
                 department=department,
             ).order_by("id")
+        )
+
+    @staticmethod
+    def _notify_member_added(institution_user, target_user, role_label, department):
+        try:
+            from notification.service.notification_service import NotificationService
+
+            service = NotificationService()
+
+            # Notify the newly added member.
+            member_payload = {
+                "title": f"Added as {role_label}",
+                "message": (
+                    f"You were added as a {role_label.lower()} member by "
+                    f"{institution_user.username} in department {department.name}."
+                ),
+                "type_name": "member_added",
+                "user_ids": [target_user.id],
+            }
+            service.create_notification(member_payload, created_by_id=None)
+
+            # Notify institution about the new member addition as a separate direct notification.
+            institution_payload = {
+                "title": "New Member Added",
+                "message": (
+                    f"{target_user.username} was added as {role_label.lower()} "
+                    f"in department {department.name}."
+                ),
+                "type_name": "member_added_admin",
+                "user_ids": [institution_user.id],
+            }
+            service.create_notification(institution_payload, created_by_id=None)
+        except Exception as exc:
+            logger.exception(
+                "member_add_notification_failed institution_user_id=%s target_user_id=%s role=%s error=%s",
+                getattr(institution_user, "id", None),
+                getattr(target_user, "id", None),
+                role_label,
+                str(exc),
+            )
+
+    @staticmethod
+    def _notify_subject_assigned(institution_user, teacher_user, subject, department, is_reassignment=False):
+        try:
+            from notification.service.notification_service import NotificationService
+
+            service = NotificationService()
+            subject_name = subject.true_subject.name if getattr(subject, "true_subject", None) else "Subject"
+            subject_code = subject.true_subject.code if getattr(subject, "true_subject", None) else ""
+            verb = "reassigned" if is_reassignment else "assigned"
+
+            teacher_payload = {
+                "title": "Subject Assigned",
+                "message": (
+                    f"{subject_name} {f'({subject_code}) ' if subject_code else ''}"
+                    f"semester {subject.semester} was {verb} to you in department {department.name}."
+                ),
+                "type_name": "subject_assigned",
+                "user_ids": [teacher_user.id],
+            }
+            service.create_notification(teacher_payload, created_by_id=None)
+
+            institution_payload = {
+                "title": "Subject Assignment Updated",
+                "message": (
+                    f"{subject_name} {f'({subject_code}) ' if subject_code else ''}"
+                    f"semester {subject.semester} was {verb} to teacher {teacher_user.username} "
+                    f"in department {department.name}."
+                ),
+                "type_name": "subject_assigned_admin",
+                "user_ids": [institution_user.id],
+            }
+            service.create_notification(institution_payload, created_by_id=None)
+        except Exception as exc:
+            logger.exception(
+                "subject_assign_notification_failed institution_user_id=%s teacher_user_id=%s subject_id=%s error=%s",
+                getattr(institution_user, "id", None),
+                getattr(teacher_user, "id", None),
+                getattr(subject, "id", None),
+                str(exc),
+            )
+
+    @staticmethod
+    def _resolve_student(student_id):
+        try:
+            student_ref = int(student_id)
+        except (TypeError, ValueError):
+            raise CoreServiceError("student_id must be an integer", 400)
+
+        # Accept either Student.id or auth User.id for teacher-facing endpoints.
+        return (
+            Student.objects.select_related("user")
+            .filter(Q(id=student_ref) | Q(user_id=student_ref))
+            .order_by("id")
+            .first()
         )
 
     def institution_search_users(self, role, q):
@@ -81,6 +178,7 @@ class CoreService:
             teacher.save(update_fields=["department"])
 
         institution.teachers.add(teacher)
+        self._notify_member_added(user, teacher_user, "Teacher", department)
 
         return {
             "institution_id": institution.id,
@@ -111,6 +209,7 @@ class CoreService:
         student.subjects.set(subjects)
 
         institution.students.add(student)
+        self._notify_member_added(user, student_user, "Student", department)
 
         return {
             "institution_id": institution.id,
@@ -145,6 +244,7 @@ class CoreService:
             teacher.save(update_fields=["department"])
 
         institution.teachers.add(teacher)
+        self._notify_member_added(user, teacher_user, "Teacher", department)
 
         return {
             "user_id": teacher_user.id,
@@ -182,6 +282,7 @@ class CoreService:
         student.subjects.set(subjects)
 
         institution.students.add(student)
+        self._notify_member_added(user, student_user, "Student", department)
 
         return {
             "user_id": student_user.id,
@@ -352,6 +453,13 @@ class CoreService:
                 409,
                 {"assigned_teacher_id": subject.teacher_id},
             )
+        self._notify_subject_assigned(
+            institution_user=user,
+            teacher_user=teacher.user,
+            subject=subject,
+            department=department,
+            is_reassignment=False,
+        )
 
         return {
             "id": subject.id,
@@ -509,6 +617,13 @@ class CoreService:
 
         subject.teacher = teacher
         subject.save(update_fields=["teacher"])
+        self._notify_subject_assigned(
+            institution_user=user,
+            teacher_user=teacher.user,
+            subject=subject,
+            department=subject.department,
+            is_reassignment=True,
+        )
 
         return {
             "subject_id": subject.id,
@@ -586,7 +701,25 @@ class CoreService:
             "has_more": offset + len(subjects) < total,
         }, 200
 
-    def teacher_upload_pdf(self, user, uploaded_file, build_absolute_uri):
+    def teacher_upload_pdf(self, user, subject_id, student_id, uploaded_file, build_absolute_uri):
+        subject = Subject.objects.select_related("teacher", "teacher__user").filter(id=subject_id).first()
+        if not subject:
+            raise CoreServiceError("Subject not found", 404)
+
+        if not subject.teacher or subject.teacher.user_id != user.id:
+            raise CoreServiceError("You can upload student PDF only for your own subject", 403)
+
+        student = self._resolve_student(student_id)
+        if not student:
+            raise CoreServiceError("Student not found", 404)
+
+        if student.department_id != subject.department_id:
+            raise CoreServiceError(
+                "Student and subject must belong to the same department",
+                403,
+                extra={"student_id": student.id, "student_user_id": student.user_id},
+            )
+
         if not uploaded_file:
             raise CoreServiceError("pdf file is required in multipart form-data", 400)
 
@@ -601,6 +734,8 @@ class CoreService:
 
         upload = TeacherPDFUpload(
             teacher=user,
+            subject=subject,
+            student=student,
             original_filename=uploaded_file.name,
         )
         upload.file.save(uploaded_file.name, uploaded_file, save=False)
@@ -609,6 +744,9 @@ class CoreService:
         return {
             "id": upload.id,
             "teacher_user_id": upload.teacher_id,
+            "subject_id": upload.subject_id,
+            "student_id": upload.student_id,
+            "student_user_id": student.user_id,
             "original_filename": upload.original_filename,
             "stored_filename": os.path.basename(upload.file.name),
             "file_path": upload.file.name,
@@ -623,9 +761,6 @@ class CoreService:
         if not subject.teacher or subject.teacher.user_id != user.id:
             raise CoreServiceError("You can upload answer key only for your own subject", 403)
 
-        if TeacherSubjectAnswerKey.objects.filter(subject=subject).exists():
-            raise CoreServiceError("Answer key already uploaded for this subject", 409)
-
         if not uploaded_file:
             raise CoreServiceError("pdf file is required in multipart form-data", 400)
 
@@ -638,17 +773,22 @@ class CoreService:
         if file_header != b"%PDF-":
             raise CoreServiceError("Invalid PDF file", 400)
 
-        answer_key = TeacherSubjectAnswerKey(
-            teacher=user,
-            subject=subject,
-            original_filename=uploaded_file.name,
-        )
+        answer_key = TeacherSubjectAnswerKey.objects.filter(subject=subject).first()
+        created = answer_key is None
+        if created:
+            answer_key = TeacherSubjectAnswerKey(
+                teacher=user,
+                subject=subject,
+                original_filename=uploaded_file.name,
+            )
+        else:
+            # Keep one answer key per subject and replace file on re-upload.
+            answer_key.teacher = user
+            answer_key.original_filename = uploaded_file.name
+            if answer_key.file:
+                answer_key.file.delete(save=False)
         answer_key.file.save(uploaded_file.name, uploaded_file, save=False)
-
-        try:
-            answer_key.save()
-        except IntegrityError:
-            raise CoreServiceError("Answer key already uploaded for this subject", 409)
+        answer_key.save()
 
         return {
             "id": answer_key.id,
@@ -658,7 +798,8 @@ class CoreService:
             "stored_filename": os.path.basename(answer_key.file.name),
             "file_path": answer_key.file.name,
             "file_url": build_absolute_uri(answer_key.file.url),
-        }, 201
+            "updated": not created,
+        }, 201 if created else 200
 
     def teacher_assign_student(self, user, student_user_id):
         student_user = User.objects.filter(id=student_user_id, role=Role.STUDENT).first()
@@ -682,18 +823,32 @@ class CoreService:
         if not teacher:
             raise CoreServiceError("Teacher profile not found", 404)
 
-        subjects_qs = (
+        subjects = list(
             Subject.objects.filter(teacher=teacher)
             .select_related("true_subject", "department", "institution")
-            .prefetch_related("students__user", "students__department")
             .order_by("id")
         )
 
+        subject_ids = [subject.id for subject in subjects]
+        mark_pairs = set(
+            StudentMark.objects.filter(subject_id__in=subject_ids).values_list("subject_id", "student_id")
+        )
+        department_ids = sorted({subject.department_id for subject in subjects if subject.department_id})
+        students_by_department = {}
+        if department_ids:
+            department_students = (
+                Student.objects.filter(department_id__in=department_ids)
+                .select_related("user", "department")
+                .order_by("id")
+            )
+            for student in department_students:
+                students_by_department.setdefault(student.department_id, []).append(student)
+
         subjects_payload = []
         unique_student_ids = set()
-        for subject in subjects_qs:
+        for subject in subjects:
             students_payload = []
-            for student in subject.students.all():
+            for student in students_by_department.get(subject.department_id, []):
                 if q:
                     haystack = " ".join(
                         [
@@ -720,6 +875,7 @@ class CoreService:
                         "department_id": student.department_id,
                         "department_name": student.department.name if student.department else None,
                         "role": "student",
+                        "mark_completed": (subject.id, student.id) in mark_pairs,
                     }
                 )
                 unique_student_ids.add(student.id)
@@ -748,61 +904,142 @@ class CoreService:
             "student_count": len(unique_student_ids),
         }, 200
 
-    def student_marks(self, user):
+    def student_marks(self, user, semester=None, subject_id=None):
         student = Student.objects.filter(user=user).first()
         if not student:
             raise CoreServiceError("Student profile not found", 404)
 
-        marks = (
-            StudentMark.objects.filter(student=student)
-            .select_related("subject", "subject__true_subject")
-            .values(
-                "id",
-                "subject_id",
-                "subject__true_subject__name",
-                "subject__true_subject__code",
-                "total_mark",
-                "acquired_mark",
-                "created_at",
-            )
+        marks = StudentMark.objects.filter(student=student).select_related("subject", "subject__true_subject")
+
+        if semester not in (None, ""):
+            try:
+                semester = int(semester)
+            except (TypeError, ValueError):
+                raise CoreServiceError("semester must be an integer", 400)
+            marks = marks.filter(subject__semester=semester)
+
+        if subject_id not in (None, ""):
+            try:
+                subject_id = int(subject_id)
+            except (TypeError, ValueError):
+                raise CoreServiceError("subject_id must be an integer", 400)
+
+            is_department_subject = Subject.objects.filter(
+                id=subject_id,
+                department_id=student.department_id,
+            ).exists()
+            if not is_department_subject:
+                raise CoreServiceError("subject_id is not available for this student's department", 400)
+
+            marks = marks.filter(subject_id=subject_id)
+
+        marks = marks.values(
+            "id",
+            "subject_id",
+            "subject__semester",
+            "subject__true_subject__name",
+            "subject__true_subject__code",
+            "total_mark",
+            "acquired_mark",
+            "created_at",
         )
 
         return list(marks), 200
 
-    def trigger_engine_model(self, teacher_pdf_path=None, student_pdf_path=None, marks=None):
-    #    #teacher_path = teacher_pdf_path or DEFAULT_TEACHER_PDF
-    #     student_path = student_pdf_path or DEFAULT_STUDENT_PDF
+    def student_mark_options(self, user, semester=None):
+        student = Student.objects.filter(user=user).first()
+        if not student:
+            raise CoreServiceError("Student profile not found", 404)
 
-    #     if not os.path.isfile(teacher_path):
-    #         raise CoreServiceError("Teacher PDF file not found", 404, {"teacher_pdf_path": teacher_path})
-    #     if not os.path.isfile(student_path):
-    #         raise CoreServiceError("Student PDF file not found", 404, {"student_pdf_path": student_path})
+        subjects = Subject.objects.filter(department_id=student.department_id).select_related("true_subject").order_by(
+            "semester",
+            "true_subject__code",
+            "id",
+        )
 
-    #     if marks is not None:
-    #         if not isinstance(marks, list) or not marks:
-    #             raise CoreServiceError("marks must be a non-empty list", 400)
-    #         if not all(isinstance(mark, (int, float)) for mark in marks):
-    #             raise CoreServiceError("marks must contain only numbers", 400)
+        if semester not in (None, ""):
+            try:
+                semester = int(semester)
+            except (TypeError, ValueError):
+                raise CoreServiceError("semester must be an integer", 400)
+            subjects = subjects.filter(semester=semester)
 
-    #     try:
-    #         teacher_answers, every_student_answers, every_student_scores = run_pipeline(
-    #             teacher_pdf_path=teacher_path,
-    #             student_pdf_path=student_path,
-    #             marks=marks,
-    #         )
-    #     except Exception as exc:
-    #         raise CoreServiceError("Model execution failed", 500, {"details": str(exc)})
+        subject_payload = [
+            {
+                "id": subject.id,
+                "true_subject_id": subject.true_subject_id,
+                "name": subject.true_subject.name if subject.true_subject else None,
+                "code": subject.true_subject.code if subject.true_subject else None,
+                "semester": subject.semester,
+            }
+            for subject in subjects
+        ]
 
-    #     student_answers = every_student_answers[0] if every_student_answers else []
-    #     student_scores = every_student_scores[0] if every_student_scores else []
-    #     return {
-    #         "teacher_pdf_path": teacher_path,
-    #         "student_pdf_path": student_path,
-    #         "teacher_answers_count": len(teacher_answers),
-    #         "student_answers_count": len(student_answers),
-    #         "scores": student_scores,
-    #         "total_score": sum(student_scores) if student_scores else 0,
-    #     }, 200
+        semesters = sorted(
+            Subject.objects.filter(department_id=student.department_id)
+            .values_list("semester", flat=True)
+            .distinct()
+        )
         return {
-            "teacher_pdf_path": None
-        }
+            "semesters": semesters,
+            "subjects": subject_payload,
+            "subject_count": len(subject_payload),
+        }, 200
+
+    def trigger_engine_model(self, user, subject_id, student_id):
+        subject = Subject.objects.select_related("teacher", "teacher__user", "true_subject").filter(id=subject_id).first()
+        if not subject:
+            raise CoreServiceError("Subject not found", 404)
+
+        if not subject.teacher or subject.teacher.user_id != user.id:
+            raise CoreServiceError("You can trigger engine only for your own subject", 403)
+
+        student = self._resolve_student(student_id)
+        if not student:
+            raise CoreServiceError("Student not found", 404)
+
+        if student.department_id != subject.department_id:
+            raise CoreServiceError(
+                "Student and subject must belong to the same department",
+                403,
+                extra={"student_id": student.id, "student_user_id": student.user_id},
+            )
+
+        answer_key = (
+            TeacherSubjectAnswerKey.objects.filter(subject=subject, teacher=user)
+            .order_by("-created_at")
+            .first()
+        )
+        if not answer_key:
+            raise CoreServiceError("Answer key not uploaded for this subject", 404)
+
+        student_upload = (
+            TeacherPDFUpload.objects.filter(
+                teacher=user,
+                subject=subject,
+                student=student,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if not student_upload:
+            raise CoreServiceError("Student PDF not uploaded for this subject and student", 404)
+
+        teacher_pdf_path = answer_key.file.path if answer_key.file else None
+        student_pdf_path = student_upload.file.path if student_upload.file else None
+
+        if not teacher_pdf_path or not os.path.isfile(teacher_pdf_path):
+            raise CoreServiceError("Answer key PDF file not found", 404)
+        if not student_pdf_path or not os.path.isfile(student_pdf_path):
+            raise CoreServiceError("Student PDF file not found", 404)
+
+        return {
+            "subject_id": subject.id,
+            "subject_name": subject.true_subject.name if subject.true_subject else None,
+            "student_id": student.id,
+            "student_user_id": student.user_id,
+            "teacher_pdf_path": teacher_pdf_path,
+            "student_pdf_path": student_pdf_path,
+            "teacher_answer_key_upload_id": answer_key.id,
+            "student_pdf_upload_id": student_upload.id,
+        }, 200

@@ -43,6 +43,10 @@ def get_notification_for_user(req):
     notifications = []
 
     notifications.extend(
+        notificationService.get_notifications_for_user(req.user.id)
+    )
+
+    notifications.extend(
         notificationService.get_notifications_created_by_user(req.user.id)
     )
 

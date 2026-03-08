@@ -78,14 +78,20 @@ class StudentMarkAdmin(admin.ModelAdmin):
 
 @admin.register(TeacherPDFUpload)
 class TeacherPDFUploadAdmin(admin.ModelAdmin):
-    list_display = ("id", "teacher", "original_filename", "file", "created_at")
-    search_fields = ("teacher__username", "original_filename")
-    list_filter = ("created_at",)
+    list_display = ("id", "teacher", "subject", "student", "original_filename", "file", "extracted_text_file", "created_at")
+    search_fields = (
+        "teacher__username",
+        "subject__true_subject__name",
+        "subject__true_subject__code",
+        "student__user__username",
+        "original_filename",
+    )
+    list_filter = ("subject", "created_at")
 
 
 @admin.register(TeacherSubjectAnswerKey)
 class TeacherSubjectAnswerKeyAdmin(admin.ModelAdmin):
-    list_display = ("id", "teacher", "subject", "original_filename", "file", "created_at")
+    list_display = ("id", "teacher", "subject", "original_filename", "file", "extracted_text_file", "created_at")
     search_fields = ("teacher__username", "subject__true_subject__name", "original_filename")
     list_filter = ("created_at",)
 

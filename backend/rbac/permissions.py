@@ -2,10 +2,12 @@ from django.http import JsonResponse
 from functools import wraps
 from django.contrib.auth import get_user_model
 from .services.table_desc_service import TableDescriptionService
+import logging
 import json
 
 tableDescriptionService=TableDescriptionService()
 User = get_user_model()
+logger = logging.getLogger("auth.jwt")
 
 def has_permission():
     def decorator(view_func):
@@ -18,23 +20,23 @@ def has_permission():
                     {"error": "Authentication required"},
                     status=401
                 )
-            permissions = [permission for group in user.groups.all() for permission in group.permissions.all()]
             if user.is_superuser:
                 return view_func(request, *args, **kwargs)
 
-            if not permissions:
+            # Use Django's resolved permission set for this user instead of
+            # iterating group permissions and requiring all of them.
+            effective_permissions = user.get_all_permissions()
+            if not effective_permissions:
+                logger.warning(
+                    "RBAC denied | user_id=%s role=%s path=%s reason=no_effective_permissions",
+                    getattr(user, "id", None),
+                    getattr(user, "role", None),
+                    getattr(request, "path", ""),
+                )
                 return JsonResponse(
                     {"error": "Permission denied"},
                     status=403
                 )
-
-            for permission in permissions:
-                perm_code = f"{permission.content_type.app_label}.{permission.codename}"
-                if not user.has_perm(perm_code):
-                    return JsonResponse(
-                        {"error": "Permission denied"},
-                        status=403
-                    )
 
             return view_func(request, *args, **kwargs)
 

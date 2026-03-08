@@ -60,3 +60,16 @@ class NotificationRead(models.Model):
     def __str__(self):
         username = self.user.username if self.user_id and self.user else f"user_id={self.user_id}"
         return f"{username} read {self.notification}"
+
+
+class UserNotification(models.Model):
+    notification = models.ForeignKey(Notification, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("notification", "user")
+
+    def __str__(self):
+        username = self.user.username if self.user_id and self.user else f"user_id={self.user_id}"
+        return f"{username} -> {self.notification}"

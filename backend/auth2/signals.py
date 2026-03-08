@@ -61,21 +61,7 @@ GROUP_PERMISSION_MAP = {
 def add_default_group_on_user_create(sender, instance, created, **kwargs):
     if not created:
         return
-
-    role_name = getattr(instance, "role", None) or "student"
-    role_name = str(role_name).lower()
-    if role_name not in ROLE_GROUPS:
-        role_name = "student"
-
-    if instance.groups.exists():
-        return
-
-    default_group = Group.objects.filter(name=role_name).first()
-    if not default_group:
-        logger.warning("Default group '%s' not found for user_id=%s", role_name, instance.id)
-        return
-
-    instance.groups.add(default_group)
+    ensure_role_group_for_user(instance)
 
 
 @receiver(post_save, sender=User)
@@ -115,6 +101,23 @@ def ensure_role_profile_for_user(user):
     if Student.objects.filter(user=instance).exists():
         return
     Student.objects.create(user=instance, department=department)
+
+
+def ensure_role_group_for_user(user):
+    role_name = str(getattr(user, "role", "") or "").lower().strip()
+    if role_name not in set(ROLE_GROUPS) | {"admin"}:
+        role_name = "student"
+
+    if role_name == "admin":
+        group_name = "admin"
+    else:
+        group_name = role_name
+
+    if user.groups.filter(name=group_name).exists():
+        return
+
+    group, _ = Group.objects.get_or_create(name=group_name)
+    user.groups.add(group)
 
 
 @receiver(post_migrate)

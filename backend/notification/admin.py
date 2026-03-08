@@ -47,3 +47,8 @@ class NotificationReadAdmin(NotifyOnAdminChangeMixin, admin.ModelAdmin):
 @admin.register(models.GroupNotification)
 class GroupNotificationAdmin(NotifyOnAdminChangeMixin, admin.ModelAdmin):
     list_display = ("id", "group", "notification", "status")
+
+
+@admin.register(models.UserNotification)
+class UserNotificationAdmin(NotifyOnAdminChangeMixin, admin.ModelAdmin):
+    list_display = ("id", "user", "notification", "created_at")
