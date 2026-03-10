@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cu124
+
 annotated-doc==0.0.4
 anyio==4.4.0
 asgiref==3.8.1
@@ -85,5 +87,3 @@ websockets==12.0
 wsproto==1.2.0
 zope.interface==6.3
 celery==5.3.6
-
---extra-index-url https://download.pytorch.org/whl/cu124
