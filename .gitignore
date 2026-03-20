@@ -5,3 +5,5 @@ __pycache__/
 trocr-base/
 all-MiniLM-L6-v2/
 .egg-info
+backend/venv/
+backend/test/
