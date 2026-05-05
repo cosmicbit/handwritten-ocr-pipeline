@@ -11,9 +11,58 @@ from django.db import transaction
 
 logger = logging.getLogger("engine.realtime")
 
+ENGINE_WORKFLOW_STEPS = [
+    {"key": "connected", "label": "Connection Ready"},
+    {"key": "queued", "label": "Task Queued"},
+    {"key": "prepare", "label": "Preparing Input"},
+    {"key": "extract", "label": "Extracting Pages"},
+    {"key": "ocr", "label": "Reading Answers"},
+    {"key": "score", "label": "Scoring Answers"},
+    {"key": "complete", "label": "Publishing Result"},
+]
+ENGINE_STEP_INDEX = {
+    step["key"]: index for index, step in enumerate(ENGINE_WORKFLOW_STEPS)
+}
+ENGINE_STAGE_TO_STEP = {
+    "connected": "connected",
+    "queued": "queued",
+    "initializing": "prepare",
+    "validating_input": "prepare",
+    "running_model": "prepare",
+    "loading_models": "prepare",
+    "teacher_ocr": "extract",
+    "student_ocr": "extract",
+    "ocr_processing": "ocr",
+    "scoring": "score",
+    "scoring_teacher_answers": "score",
+    "scoring_student_answers": "score",
+    "saving_results": "complete",
+    "finalizing": "complete",
+    "failed": "complete",
+}
+
 
 def _task_group_name(task_id):
     return f"engine_task_{task_id}"
+
+
+def _get_stage_metadata(stage):
+    step_key = ENGINE_STAGE_TO_STEP.get(stage, "prepare")
+    step_index = ENGINE_STEP_INDEX[step_key]
+    step_label = next(
+        step["label"] for step in ENGINE_WORKFLOW_STEPS if step["key"] == step_key
+    )
+    return {
+        "step_key": step_key,
+        "step_label": step_label,
+        "step_index": step_index,
+        "step_total": len(ENGINE_WORKFLOW_STEPS),
+        "steps": ENGINE_WORKFLOW_STEPS,
+    }
+
+
+def _normalize_stage_for_payload(stage):
+    return ENGINE_STAGE_TO_STEP.get(stage, stage)
 
 
 def _broadcast_task_status(task_id, payload):
@@ -55,12 +104,14 @@ def _broadcast_task_status(task_id, payload):
 
 def _update_task_status(task, stage, progress, message, **extra):
     task_id = task.request.id
+    normalized_stage = _normalize_stage_for_payload(stage)
     payload = {
         "event": "progress",
         "task_id": task_id,
-        "stage": stage,
+        "stage": normalized_stage,
         "progress": progress,
         "message": message,
+        **_get_stage_metadata(stage),
         **extra,
     }
     task.update_state(
@@ -68,6 +119,13 @@ def _update_task_status(task, stage, progress, message, **extra):
         meta=payload,
     )
     _broadcast_task_status(task_id, payload)
+
+
+def _build_progress_callback(task):
+    def progress_callback(stage, progress, message, **extra):
+        _update_task_status(task, stage, progress, message, **extra)
+
+    return progress_callback
 
 
 def _normalize_score(score, max_score):
@@ -185,6 +243,7 @@ def run_engine_task(
 ):
     temp_output_dir = None
     task_id = self.request.id
+    progress_callback = _build_progress_callback(self)
     logger.info("task_started task_id=%s subject_id=%s student_id=%s", task_id, subject_id, student_id)
     try:
         _update_task_status(self, "initializing", 5, "Initializing engine task")
@@ -215,6 +274,7 @@ def run_engine_task(
             marks=marks,
             out_teacher_path=teacher_out_path,
             out_student_path=student_out_path,
+            progress_callback=progress_callback,
         )
 
         student_answers = every_student_answers[0] if every_student_answers else []
@@ -236,6 +296,9 @@ def run_engine_task(
         payload = {
             "event": "success",
             "task_id": task_id,
+            "stage": "complete",
+            "progress": 100,
+            "message": "Engine task completed successfully",
             "teacher_pdf_path": teacher_path,
             "student_pdf_path": student_path,
             "subject_id": subject_id,
@@ -247,6 +310,7 @@ def run_engine_task(
             "student_mark_id": student_mark_id,
             "teacher_txt": "\n\nNext Answer \n".join(teacher_answers),
             "student_txt": "\n\nNext Answer \n".join(student_answers),
+            **_get_stage_metadata("finalizing"),
         }
         _update_task_status(self, "finalizing", 95, "Finalizing task result")
         _broadcast_task_status(task_id, payload)
@@ -259,10 +323,11 @@ def run_engine_task(
             {
                 "event": "failure",
                 "task_id": task_id,
-                "stage": "failed",
+                "stage": "complete",
                 "progress": 100,
                 "message": str(exc),
                 "status": 400,
+                **_get_stage_metadata("failed"),
             },
         )
         logger.warning("task_failed_validation task_id=%s error=%s", task_id, str(exc))
@@ -274,10 +339,11 @@ def run_engine_task(
             {
                 "event": "failure",
                 "task_id": task_id,
-                "stage": "failed",
+                "stage": "complete",
                 "progress": 100,
                 "message": f"Missing dependency: {exc.name}",
                 "status": 500,
+                **_get_stage_metadata("failed"),
             },
         )
         logger.error("task_failed_dependency task_id=%s dependency=%s", task_id, exc.name)
@@ -288,11 +354,12 @@ def run_engine_task(
             {
                 "event": "failure",
                 "task_id": task_id,
-                "stage": "failed",
+                "stage": "complete",
                 "progress": 100,
                 "message": "Unhandled task error",
                 "details": str(exc),
                 "status": 500,
+                **_get_stage_metadata("failed"),
             },
         )
         logger.exception("task_failed_unhandled task_id=%s", task_id)

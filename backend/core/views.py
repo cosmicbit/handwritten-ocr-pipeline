@@ -513,6 +513,26 @@ def teacher_upload_answer_key(request):
 
 @csrf_exempt
 @require_POST
+@has_permission()
+def teacher_answer_key_status(request):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
+    
+    subject_id = request.POST.get("subject_id")
+    
+    if not subject_id:
+        return JsonResponse({ "error": "subject_id is required"}, status=400)
+    
+    return _service_response(
+        core_service.teacher_answer_key_status,
+        request.user,
+        subject_id
+    )
+
+
+@csrf_exempt
+@require_POST
 def teacher_assign_student(request):
     auth_error = _require_role(request, "teacher")
     if auth_error:

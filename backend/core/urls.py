@@ -30,6 +30,7 @@ urlpatterns = [
     path("institution/subjects/remove", views.institution_remove_subject, name="institution_remove_subject"),
     path("teacher/pdfs/upload", views.teacher_upload_pdf, name="teacher_upload_pdf"),
     path("teacher/subjects/answer-key/upload", views.teacher_upload_answer_key, name="teacher_upload_answer_key"),
+    path("teacher/answer-key/status",views.teacher_answer_key_status,name="teacher_answer_key_status"),
     path("teacher/students/assign", views.teacher_assign_student, name="teacher_assign_student"),
     path("teacher/students", views.teacher_students, name="teacher_students"),
     path("student/marks", views.student_marks, name="student_marks"),

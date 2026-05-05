@@ -187,21 +187,31 @@ def run_pipeline(
     craft=None,
     recognizer=None,
     analyser=None,
+    progress_callback=None,
 ):
+    def report_progress(stage, progress, message, **extra):
+        if progress_callback:
+            progress_callback(stage, progress, message, **extra)
+
     if marks is None:
         marks = [5, 5, 5]
 
     if not craft or not recognizer or not analyser:
+        report_progress("running_model", 40, "Loading OCR and scoring models")
         craft, recognizer, analyser = build_models()
 
+    report_progress("running_model", 50, "Extracting teacher answers")
     teacher_answers = getAnswers(teacher_pdf_path, craft, recognizer)
     utils.save_text(out_teacher_path, "\n\nNext Answer \n".join(teacher_answers))
 
+    report_progress("running_model", 65, "Extracting student answers")
     student1_answer = getAnswers(student_pdf_path, craft, recognizer)
     utils.save_text(out_student_path, "\n\nNext Answer \n".join(student1_answer))
 
     every_student_answers = [student1_answer]
+    report_progress("running_model", 75, "Scoring answers")
     every_student_scores = phaseThree(teacher_answers, every_student_answers, marks, analyser)
+    report_progress("running_model", 80, "OCR and scoring finished")
     return teacher_answers, every_student_answers, every_student_scores
 
 def main():
