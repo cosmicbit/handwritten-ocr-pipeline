@@ -737,12 +737,13 @@ class CoreService:
             raise CoreServiceError("Only PDF files are allowed", 400)
 
         file_header = uploaded_file.read(5)
+        teacher = Teacher.objects.get(user=user)
         uploaded_file.seek(0)
         if file_header != b"%PDF-":
             raise CoreServiceError("Invalid PDF file", 400)
 
         upload = TeacherPDFUpload(
-            teacher=user,
+            teacher=teacher,
             subject=subject,
             student=student,
             original_filename=uploaded_file.name,
@@ -781,18 +782,19 @@ class CoreService:
         uploaded_file.seek(0)
         if file_header != b"%PDF-":
             raise CoreServiceError("Invalid PDF file", 400)
-
+        
+        teacher = Teacher.objects.get(user=user)
         answer_key = TeacherSubjectAnswerKey.objects.filter(subject=subject).first()
         created = answer_key is None
         if created:
             answer_key = TeacherSubjectAnswerKey(
-                teacher=user,
+                teacher=teacher,
                 subject=subject,
                 original_filename=uploaded_file.name,
             )
         else:
             # Keep one answer key per subject and replace file on re-upload.
-            answer_key.teacher = user
+            answer_key.teacher = teacher
             answer_key.original_filename = uploaded_file.name
             if answer_key.file:
                 answer_key.file.delete(save=False)
@@ -809,6 +811,25 @@ class CoreService:
             "file_url": build_absolute_uri(answer_key.file.url),
             "updated": not created,
         }, 201 if created else 200
+    
+    def teacher_answer_key_status(self, user, subject_id):
+        teacher = Teacher.objects.filter(user = user).first()
+        subject = Subject.objects.filter(id = subject_id).first()
+        answer_key = TeacherSubjectAnswerKey.objects.filter(teacher=teacher, subject=subject).first()
+        if answer_key:
+            return {
+                "status": "Found",
+                "id": answer_key.id,
+                "answer_link": answer_key.file.url if answer_key.file else None,
+                "extracted_text": answer_key.extracted_text,
+                "created_at": answer_key.created_at,
+                "subject": answer_key.subject.id,
+                "teacher": answer_key.teacher.user.id
+            }, 201
+        
+        return {
+            "status": "Not Found"
+        }, 200
 
     def teacher_assign_student(self, user, student_user_id):
         student_user = User.objects.filter(id=student_user_id, role=Role.STUDENT).first()
@@ -1013,9 +1034,11 @@ class CoreService:
                 403,
                 extra={"student_id": student.id, "student_user_id": student.user_id},
             )
+        
+        teacher = Teacher.objects.get(user=user)
 
         answer_key = (
-            TeacherSubjectAnswerKey.objects.filter(subject=subject, teacher=user)
+            TeacherSubjectAnswerKey.objects.filter(subject=subject, teacher=teacher)
             .order_by("-created_at")
             .first()
         )
@@ -1024,7 +1047,7 @@ class CoreService:
 
         student_upload = (
             TeacherPDFUpload.objects.filter(
-                teacher=user,
+                teacher=teacher,
                 subject=subject,
                 student=student,
             )

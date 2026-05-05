@@ -1,5 +1,8 @@
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
+from asgiref.sync import sync_to_async
+from celery.result import AsyncResult
 import logging
+from core.tasks import _get_stage_metadata, _normalize_stage_for_payload
 
 logger = logging.getLogger("engine.realtime")
 
@@ -22,11 +25,24 @@ class EngineTaskConsumer(AsyncJsonWebsocketConsumer):
         )
         await self.send_json(
             {
-                "event": "connected",
                 "task_id": self.task_id,
+                "event": "connected",
+                "stage": "connected",
+                "progress": 0,
                 "message": "Subscribed to engine task updates",
+                **_get_stage_metadata("connected"),
             }
         )
+        snapshot = await self._get_task_snapshot()
+        if snapshot:
+            logger.info(
+                "ws_snapshot_send task_id=%s state=%s stage=%s progress=%s",
+                self.task_id,
+                snapshot.get("state"),
+                snapshot.get("stage"),
+                snapshot.get("progress"),
+            )
+            await self.send_json(snapshot)
 
     async def disconnect(self, close_code):
         if hasattr(self, "group_name"):
@@ -48,3 +64,31 @@ class EngineTaskConsumer(AsyncJsonWebsocketConsumer):
             payload.get("progress"),
         )
         await self.send_json(payload)
+
+    @sync_to_async
+    def _get_task_snapshot(self):
+        result = AsyncResult(self.task_id)
+        info = result.info if isinstance(result.info, dict) else {}
+
+        if result.state == "PENDING" and not info:
+            return None
+
+        payload = {
+            "event": "snapshot",
+            "task_id": self.task_id,
+            "state": result.state,
+            "stage": _normalize_stage_for_payload(info.get("stage") or "queued"),
+            "progress": info.get("progress", 0),
+            "message": info.get("message") or "Waiting for task progress",
+        }
+        payload.update(_get_stage_metadata(payload["stage"]))
+
+        if result.successful() and isinstance(result.result, dict):
+            payload.update(result.result)
+            payload["event"] = "success"
+        elif result.failed():
+            payload["event"] = "failure"
+            payload["message"] = payload["message"] or str(result.result)
+            payload.update(_get_stage_metadata(payload["stage"]))
+
+        return payload

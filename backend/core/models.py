@@ -284,7 +284,7 @@ def safe_student_text_upload_path(_, __):
 class TeacherPDFUpload(models.Model):
 
     teacher = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        Teacher,
         on_delete=models.CASCADE,
         related_name="teacher_pdf_uploads",
     )
@@ -331,7 +331,7 @@ def teacher_answer_key_upload_path(_, __):
 class TeacherSubjectAnswerKey(models.Model):
 
     teacher = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        Teacher,
         on_delete=models.CASCADE,
         related_name="teacher_answer_keys",
     )
