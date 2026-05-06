@@ -249,8 +249,17 @@ class StudentMark(models.Model):
 
     total_mark = models.PositiveIntegerField()
     acquired_mark = models.PositiveIntegerField()
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="updated_student_marks",
+    )
+    update_source = models.CharField(max_length=64, blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
         constraints = [
