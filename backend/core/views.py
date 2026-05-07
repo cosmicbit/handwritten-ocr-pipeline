@@ -9,6 +9,11 @@ from core.tasks import run_engine_task
 
 from rbac.permissions import has_permission
 
+from .serializers import (
+    RequestValidationError,
+    TeacherStudentAnswerSheetRequestSchema,
+    TeacherStudentMarkUpdateRequestSchema,
+)
 from .services.core_service import CoreService, CoreServiceError
 
 core_service = CoreService()
@@ -22,21 +27,29 @@ def _parse_json(request):
         return None
 
 
+def _json_response(*, message=None, error=None, status=200):
+    return JsonResponse({"error": error, "message": message}, status=status)
+
+
 def _require_role(request, role_name):
     user = getattr(request, "user", None)
     if not user:
-        return JsonResponse({"error": "Authentication required"}, status=401)
+        return _json_response(error="Authentication required", status=401)
     if str(getattr(user, "role", "")).lower() != role_name:
-        return JsonResponse({"error": f"{role_name.title()} role required"}, status=403)
+        return _json_response(error=f"{role_name.title()} role required", status=403)
     return None
 
 
 def _service_response(service_method, *args, **kwargs):
     try:
         message, status = service_method(*args, **kwargs)
-        return JsonResponse({"message": message}, status=status)
+        return _json_response(message=message, status=status)
     except CoreServiceError as exc:
-        return JsonResponse(exc.to_response_body(), status=exc.status)
+        return _json_response(
+            message=exc.extra if exc.extra else None,
+            error=exc.message,
+            status=exc.status,
+        )
 
 
 @require_GET
@@ -558,6 +571,70 @@ def teacher_students(request):
 
     q = str(request.GET.get("q", "")).strip().lower()
     return _service_response(core_service.teacher_students, request.user, q)
+
+
+@csrf_exempt
+@require_POST
+def teacher_student_answer_sheet(request):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return _json_response(error="Invalid JSON", status=400)
+
+    try:
+        validated = TeacherStudentAnswerSheetRequestSchema(data).raise_for_errors()
+    except RequestValidationError as exc:
+        return _json_response(error=exc.errors, status=400)
+
+    return _service_response(
+        core_service.teacher_student_answer_sheet,
+        request.user,
+        validated["teacher_id"],
+        validated["student_id"],
+        validated["department_id"],
+        validated["subject_id"],
+        request.build_absolute_uri,
+    )
+
+
+@csrf_exempt
+@require_GET
+def teacher_student_marks(request, studentId):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
+
+    return _service_response(core_service.teacher_student_marks, request.user, studentId)
+
+
+@csrf_exempt
+@require_POST
+def teacher_update_student_marks(request):
+    auth_error = _require_role(request, "teacher")
+    if auth_error:
+        return auth_error
+
+    data = _parse_json(request)
+    if data is None:
+        return _json_response(error="Invalid JSON", status=400)
+
+    try:
+        validated = TeacherStudentMarkUpdateRequestSchema(data).raise_for_errors()
+    except RequestValidationError as exc:
+        return _json_response(error=exc.errors, status=400)
+
+    return _service_response(
+        core_service.teacher_update_student_mark,
+        request.user,
+        validated["teacher_id"],
+        validated["student_id"],
+        validated["department_id"],
+        validated["subject_id"],
+        validated["acquired_mark"],
+    )
 
 
 @csrf_exempt

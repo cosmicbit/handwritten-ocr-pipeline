@@ -1,3 +1,4 @@
+import json
 import shutil
 import tempfile
 
@@ -387,3 +388,301 @@ class TeacherStudentsMarkFlagTests(TestCase):
 
         self.assertTrue(marks_by_student_id[self.student_marked.id])
         self.assertFalse(marks_by_student_id[self.student_unmarked.id])
+
+
+class TeacherStudentReviewApiTests(TestCase):
+    def setUp(self):
+        self.media_root = tempfile.mkdtemp(prefix="core-review-test-media-")
+        self.addCleanup(lambda: shutil.rmtree(self.media_root, ignore_errors=True))
+
+        self.teacher_user = User.objects.create_user(
+            username="teacher_review",
+            email="teacher_review@example.com",
+            password="Pass@12345",
+            role="teacher",
+        )
+        self.other_teacher_user = User.objects.create_user(
+            username="teacher_review_other",
+            email="teacher_review_other@example.com",
+            password="Pass@12345",
+            role="teacher",
+        )
+        self.student_user = User.objects.create_user(
+            username="student_review",
+            email="student_review@example.com",
+            password="Pass@12345",
+            role="student",
+        )
+        self.other_student_user = User.objects.create_user(
+            username="student_review_other",
+            email="student_review_other@example.com",
+            password="Pass@12345",
+            role="student",
+        )
+        institution_user = User.objects.create_user(
+            username="institution_review",
+            email="institution_review@example.com",
+            password="Pass@12345",
+            role="institution",
+        )
+
+        self.teacher = Teacher.objects.get(user=self.teacher_user)
+        self.other_teacher = Teacher.objects.get(user=self.other_teacher_user)
+        self.student = Student.objects.get(user=self.student_user)
+        self.other_student = Student.objects.get(user=self.other_student_user)
+        self.institution = Institution.objects.get(user=institution_user)
+        self.department = Department.objects.create(name="IT", institution=self.institution)
+
+        for teacher in (self.teacher, self.other_teacher):
+            teacher.department = self.department
+            teacher.save(update_fields=["department"])
+
+        for student in (self.student, self.other_student):
+            student.department = self.department
+            student.save(update_fields=["department"])
+
+        self.institution.teachers.add(self.teacher, self.other_teacher)
+        self.institution.students.add(self.student, self.other_student)
+
+        self.primary_subject = Subject.objects.create(
+            true_subject=TrueSubject.objects.create(name="Mathematics", code="MATH101"),
+            semester=1,
+            department=self.department,
+            institution=self.institution,
+            teacher=self.teacher,
+        )
+        self.secondary_subject = Subject.objects.create(
+            true_subject=TrueSubject.objects.create(name="Physics", code="PHY101"),
+            semester=1,
+            department=self.department,
+            institution=self.institution,
+            teacher=self.other_teacher,
+        )
+
+        self.student.subjects.add(self.primary_subject, self.secondary_subject)
+        self.other_student.subjects.add(self.primary_subject)
+
+        StudentUnderTeacher.objects.create(teacher=self.teacher_user, student=self.student_user)
+        StudentUnderTeacher.objects.create(teacher=self.other_teacher_user, student=self.other_student_user)
+
+        self.primary_mark = StudentMark.objects.create(
+            subject=self.primary_subject,
+            student=self.student,
+            total_mark=100,
+            acquired_mark=78,
+        )
+        StudentMark.objects.create(
+            subject=self.secondary_subject,
+            student=self.student,
+            total_mark=100,
+            acquired_mark=84,
+        )
+
+        self.answer_sheet_url = "/core/teacher/students/answer-sheet"
+        self.marks_url = f"/core/teacher/students/{self.student.id}/marks"
+        self.update_mark_url = "/core/teacher/students/marks/update"
+
+    def _auth_headers(self, user):
+        token = create_jwt_token(user)
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def _create_upload(self, filename, payload=b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"):
+        upload = TeacherPDFUpload(
+            teacher=self.teacher,
+            subject=self.primary_subject,
+            student=self.student,
+            original_filename=filename,
+        )
+        upload.file.save(
+            filename,
+            SimpleUploadedFile(filename, payload, content_type="application/pdf"),
+            save=False,
+        )
+        upload.save()
+        return upload
+
+    def test_successful_answer_sheet_fetch(self):
+        with override_settings(MEDIA_ROOT=self.media_root):
+            self._create_upload("answer-v1.pdf")
+            latest_upload = self._create_upload("answer-v2.pdf")
+
+            response = self.client.post(
+                self.answer_sheet_url,
+                data=json.dumps(
+                    {
+                        "teacher_id": self.teacher_user.id,
+                        "student_id": self.student.id,
+                        "department_id": self.department.id,
+                        "subject_id": self.primary_subject.id,
+                    }
+                ),
+                content_type="application/json",
+                **self._auth_headers(self.teacher_user),
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertIsNone(payload["error"])
+            self.assertEqual(payload["message"]["id"], latest_upload.id)
+            self.assertEqual(payload["message"]["original_filename"], "answer-v2.pdf")
+            self.assertIn("/media/", payload["message"]["file_url"])
+
+    def test_answer_sheet_fetch_allows_department_scoped_student(self):
+        with override_settings(MEDIA_ROOT=self.media_root):
+            self.student.subjects.remove(self.primary_subject)
+            upload = self._create_upload("answer-dept.pdf")
+
+            response = self.client.post(
+                self.answer_sheet_url,
+                data=json.dumps(
+                    {
+                        "teacher_id": self.teacher_user.id,
+                        "student_id": self.student.id,
+                        "department_id": self.department.id,
+                        "subject_id": self.primary_subject.id,
+                    }
+                ),
+                content_type="application/json",
+                **self._auth_headers(self.teacher_user),
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["message"]["id"], upload.id)
+
+    def test_answer_sheet_not_found(self):
+        response = self.client.post(
+            self.answer_sheet_url,
+            data=json.dumps(
+                {
+                    "teacher_id": self.teacher_user.id,
+                    "student_id": self.student.id,
+                    "department_id": self.department.id,
+                    "subject_id": self.primary_subject.id,
+                }
+            ),
+            content_type="application/json",
+            **self._auth_headers(self.teacher_user),
+        )
+
+        self.assertEqual(response.status_code, 404)
+        payload = response.json()
+        self.assertEqual(payload["error"], "Answer sheet not found")
+        self.assertIsNone(payload["message"])
+
+    def test_unauthorized_teacher_access_to_another_teachers_student(self):
+        response = self.client.get(
+            f"/core/teacher/students/{self.other_student.id}/marks",
+            **self._auth_headers(self.teacher_user),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"], "You are not authorized to access this student")
+
+    def test_teacher_can_fetch_marks_without_explicit_assignment_when_subject_matches(self):
+        StudentUnderTeacher.objects.filter(teacher=self.teacher_user, student=self.student_user).delete()
+
+        response = self.client.get(self.marks_url, **self._auth_headers(self.teacher_user))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["error"])
+
+    def test_teacher_can_fetch_marks_with_department_scope(self):
+        StudentUnderTeacher.objects.filter(teacher=self.teacher_user, student=self.student_user).delete()
+        self.student.subjects.remove(self.primary_subject)
+
+        response = self.client.get(self.marks_url, **self._auth_headers(self.teacher_user))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["error"])
+        self.assertEqual(response.json()["message"], [
+            {
+                "subject_id": self.primary_subject.id,
+                "subject_name": "Mathematics",
+                "subject_code": "MATH101",
+                "total_mark": 100,
+                "acquired_mark": 78,
+            }
+        ])
+
+    def test_successful_marks_fetch(self):
+        response = self.client.get(self.marks_url, **self._auth_headers(self.teacher_user))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIsNone(payload["error"])
+        self.assertEqual(payload["message"], [
+            {
+                "subject_id": self.primary_subject.id,
+                "subject_name": "Mathematics",
+                "subject_code": "MATH101",
+                "total_mark": 100,
+                "acquired_mark": 78,
+            }
+        ])
+
+    def test_successful_manual_mark_update(self):
+        response = self.client.post(
+            self.update_mark_url,
+            data=json.dumps(
+                {
+                    "teacher_id": self.teacher_user.id,
+                    "student_id": self.student.id,
+                    "department_id": self.department.id,
+                    "subject_id": self.primary_subject.id,
+                    "acquired_mark": 82,
+                }
+            ),
+            content_type="application/json",
+            **self._auth_headers(self.teacher_user),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIsNone(payload["error"])
+        self.assertEqual(payload["message"]["acquired_mark"], 82)
+
+        self.primary_mark.refresh_from_db()
+        self.assertEqual(self.primary_mark.acquired_mark, 82)
+        self.assertEqual(self.primary_mark.updated_by_id, self.teacher_user.id)
+        self.assertEqual(self.primary_mark.update_source, "manual_teacher_override")
+
+    def test_invalid_acquired_mark_greater_than_total_mark(self):
+        response = self.client.post(
+            self.update_mark_url,
+            data=json.dumps(
+                {
+                    "teacher_id": self.teacher_user.id,
+                    "student_id": self.student.id,
+                    "department_id": self.department.id,
+                    "subject_id": self.primary_subject.id,
+                    "acquired_mark": 120,
+                }
+            ),
+            content_type="application/json",
+            **self._auth_headers(self.teacher_user),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "acquired_mark cannot be greater than total_mark")
+
+    def test_invalid_payload(self):
+        response = self.client.post(
+            self.update_mark_url,
+            data=json.dumps(
+                {
+                    "teacher_id": self.teacher_user.id,
+                    "student_id": self.student.id,
+                    "department_id": self.department.id,
+                    "acquired_mark": 82,
+                }
+            ),
+            content_type="application/json",
+            **self._auth_headers(self.teacher_user),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("subject_id", response.json()["error"])
+
+    def test_unauthenticated_access(self):
+        response = self.client.get(self.marks_url)
+        self.assertEqual(response.status_code, 401)

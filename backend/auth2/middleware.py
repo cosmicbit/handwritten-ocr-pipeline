@@ -35,7 +35,7 @@ class JWTAuthenticationMiddleware:
                 self._get_ip(request),
             )
             return JsonResponse(
-                {"error": "Missing token"},
+                {"error": "Missing token", "message": None},
                 status=401
             )
 
@@ -82,7 +82,7 @@ class JWTAuthenticationMiddleware:
                 self._get_ip(request),
             )
             return JsonResponse(
-                {"error": "Token expired"},
+                {"error": "Token expired", "message": None},
                 status=401
             )
 
@@ -93,7 +93,7 @@ class JWTAuthenticationMiddleware:
                 self._get_ip(request),
             )
             return JsonResponse(
-                {"error": "Invalid token"},
+                {"error": "Invalid token", "message": None},
                 status=401
             )
 
@@ -104,7 +104,7 @@ class JWTAuthenticationMiddleware:
                 request.path,
             )
             return JsonResponse(
-                {"error": "User not found"},
+                {"error": "User not found", "message": None},
                 status=401
             )
 

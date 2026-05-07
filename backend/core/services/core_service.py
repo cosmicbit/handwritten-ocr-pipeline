@@ -150,6 +150,85 @@ class CoreService:
             .first()
         )
 
+    @staticmethod
+    def _get_teacher_for_user(user):
+        teacher = Teacher.objects.select_related("user", "department").filter(user=user).first()
+        if not teacher:
+            raise CoreServiceError("Teacher profile not found", 404)
+        return teacher
+
+    @staticmethod
+    def _normalize_teacher_identity_check(teacher, teacher_id):
+        if teacher_id in (None, ""):
+            return
+
+        try:
+            teacher_ref = int(teacher_id)
+        except (TypeError, ValueError):
+            raise CoreServiceError("teacher_id must be an integer", 400)
+
+        if teacher_ref not in {teacher.id, teacher.user_id}:
+            raise CoreServiceError("teacher_id does not match the authenticated teacher", 403)
+
+    def _resolve_teacher_student_subject_context(
+        self,
+        user,
+        *,
+        student_id,
+        subject_id,
+        department_id=None,
+        teacher_id=None,
+    ):
+        teacher = self._get_teacher_for_user(user)
+        self._normalize_teacher_identity_check(teacher, teacher_id)
+
+        student = self._resolve_student(student_id)
+        if not student:
+            raise CoreServiceError("Student not found", 404)
+
+        subject = (
+            Subject.objects.select_related("teacher", "teacher__user", "department", "true_subject")
+            .filter(id=subject_id)
+            .first()
+        )
+        if not subject:
+            raise CoreServiceError("Subject not found", 404)
+
+        if not subject.teacher or subject.teacher_id != teacher.id:
+            raise CoreServiceError("You are not authorized to access this subject", 403)
+
+        if department_id not in (None, ""):
+            try:
+                department_ref = int(department_id)
+            except (TypeError, ValueError):
+                raise CoreServiceError("department_id must be an integer", 400)
+
+            if subject.department_id != department_ref or student.department_id != department_ref:
+                raise CoreServiceError("Department context does not match the student and subject", 403)
+
+        if student.department_id != subject.department_id:
+            raise CoreServiceError("You are not authorized to access this student for the subject department", 403)
+
+        return teacher, student, subject
+
+    def _resolve_teacher_student_context(self, user, *, student_id):
+        teacher = self._get_teacher_for_user(user)
+        student = self._resolve_student(student_id)
+        if not student:
+            raise CoreServiceError("Student not found", 404)
+
+        has_assignment = StudentUnderTeacher.objects.filter(teacher=user, student=student.user).exists()
+        has_subject_scope = Subject.objects.filter(teacher=teacher, students=student).exists()
+        has_department_scope = Subject.objects.filter(
+            teacher=teacher,
+            department_id=student.department_id,
+        ).exists()
+
+        if not has_assignment and not has_subject_scope and not has_department_scope:
+            raise CoreServiceError("You are not authorized to access this student", 403)
+
+        return teacher, student
+
     def institution_search_users(self, role, q):
         if role not in {Role.TEACHER, Role.STUDENT}:
             raise CoreServiceError("role must be either 'teacher' or 'student'", 400)
@@ -932,6 +1011,113 @@ class CoreService:
             "subjects": subjects_payload,
             "subject_count": len(subjects_payload),
             "student_count": len(unique_student_ids),
+        }, 200
+
+    def teacher_student_answer_sheet(self, user, teacher_id, student_id, department_id, subject_id, build_absolute_uri):
+        teacher, student, subject = self._resolve_teacher_student_subject_context(
+            user,
+            student_id=student_id,
+            subject_id=subject_id,
+            department_id=department_id,
+            teacher_id=teacher_id,
+        )
+
+        upload = (
+            TeacherPDFUpload.objects.filter(
+                teacher=teacher,
+                student=student,
+                subject=subject,
+            )
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        if not upload:
+            raise CoreServiceError("Answer sheet not found", 404)
+
+        file_url = build_absolute_uri(upload.file.url) if upload.file else None
+        if not file_url:
+            raise CoreServiceError("Answer sheet file is missing", 404)
+
+        return {
+            "id": upload.id,
+            "teacher_user_id": teacher.user_id,
+            "student_id": student.id,
+            "subject_id": subject.id,
+            "department_id": subject.department_id,
+            "original_filename": upload.original_filename,
+            "stored_filename": os.path.basename(upload.file.name),
+            "file_path": upload.file.name,
+            "file_url": file_url,
+        }, 200
+
+    def teacher_student_marks(self, user, student_id):
+        teacher, student = self._resolve_teacher_student_context(user, student_id=student_id)
+
+        subject_ids = list(
+            Subject.objects.filter(teacher=teacher, students=student)
+            .order_by("semester", "true_subject__code", "id")
+            .values_list("id", flat=True)
+        )
+        if not subject_ids:
+            subject_ids = list(
+                Subject.objects.filter(
+                    teacher=teacher,
+                    department_id=student.department_id,
+                )
+                .order_by("semester", "true_subject__code", "id")
+                .values_list("id", flat=True)
+            )
+        if not subject_ids:
+            raise CoreServiceError("You are not authorized to access marks for this student", 403)
+
+        marks = (
+            StudentMark.objects.filter(student=student, subject_id__in=subject_ids)
+            .select_related("subject", "subject__true_subject")
+            .order_by("subject__semester", "subject__true_subject__code", "subject_id")
+        )
+
+        return [
+            {
+                "subject_id": mark.subject_id,
+                "subject_name": mark.subject.true_subject.name if mark.subject and mark.subject.true_subject else None,
+                "subject_code": mark.subject.true_subject.code if mark.subject and mark.subject.true_subject else None,
+                "total_mark": mark.total_mark,
+                "acquired_mark": mark.acquired_mark,
+            }
+            for mark in marks
+        ], 200
+
+    def teacher_update_student_mark(self, user, teacher_id, student_id, department_id, subject_id, acquired_mark):
+        _teacher, student, subject = self._resolve_teacher_student_subject_context(
+            user,
+            student_id=student_id,
+            subject_id=subject_id,
+            department_id=department_id,
+            teacher_id=teacher_id,
+        )
+
+        mark = StudentMark.objects.filter(student=student, subject=subject).first()
+        if not mark:
+            raise CoreServiceError("Mark record not found for this student and subject", 404)
+
+        if acquired_mark > mark.total_mark:
+            raise CoreServiceError("acquired_mark cannot be greater than total_mark", 400)
+
+        mark.acquired_mark = acquired_mark
+        mark.updated_by = user
+        mark.update_source = "manual_teacher_override"
+
+        try:
+            mark.save(update_fields=["acquired_mark", "updated_by", "update_source", "updated_at"])
+        except IntegrityError:
+            raise CoreServiceError("Unable to update mark due to a conflicting state", 409)
+
+        return {
+            "student_id": student.id,
+            "subject_id": subject.id,
+            "acquired_mark": mark.acquired_mark,
+            "total_mark": mark.total_mark,
+            "updated": True,
         }, 200
 
     def student_marks(self, user, semester=None, subject_id=None):
